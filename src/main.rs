@@ -59,7 +59,11 @@ fn main() {
             }
             println!("waiting for container: {}", &container_id);
 
-            let wait = cmd!("docker logs --follow {}", &container_id.trim_end());
+            let mut wait = cmd!("docker logs --follow {}", &container_id.trim_end());
+            {
+                let command = &mut wait.command;
+                command.stdout(Stdio::piped());
+            }
             // Access std::process::Child.
             wait.run().unwrap();
         }
