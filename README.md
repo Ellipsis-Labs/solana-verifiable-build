@@ -42,14 +42,15 @@ And this would be the output:
 79061f569f4b23728b3412153dedf5c5d4109257
 ```
 
-To manually verify this build, one could run the following from the root of this repository:
+To manually verify this build, one could run the following from the root of this repository. _This command takes a long time because it is building the binary in a Docker container_
 
 ```
 cd examples/hello_world
-# This command takes a long time because it is building the binary in a Docker container
 verifier-cli build
 
 ```
+
+Now we can check the resulting hash from the build.
 
 ```
 verifier-cli get-executable-hash -f target/deploy/hello_world.so
