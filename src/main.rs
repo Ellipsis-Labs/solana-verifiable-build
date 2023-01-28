@@ -146,6 +146,8 @@ pub fn verify(
         "Verifying image: {:?}, on network {:?} against program ID {}",
         image, network, program_id
     );
+    println!("Executable path in container: {:?}", executable_path);
+    println!("");
     let output = run_fun!(
         docker run --rm
         -it $image  sh -c
@@ -153,6 +155,7 @@ pub fn verify(
         | tail -n 1
         | awk "{print $1, $3}"
     )?;
+
     let tokens = output.split_whitespace().collect::<Vec<_>>();
     let executable_size = tokens[0].parse::<usize>()?;
     let executable_hash = tokens[1];
