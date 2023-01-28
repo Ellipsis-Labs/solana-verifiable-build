@@ -51,11 +51,13 @@ verifier-cli build
 
 ```
 
+```
 verifier-cli get-executable-hash -f target/deploy/hello_world.so
 
 ```
 
 And you will see that this returns the same value as the `get-program-hash` command with the custom length
+
 ```
 
 79061f569f4b23728b3412153dedf5c5d4109257
@@ -63,9 +65,9 @@ And you will see that this returns the same value as the `get-program-hash` comm
 ```
 
 To get the stripped version, run:
+
 ```
 
 verifier-cli get-executable-hash -f target/deploy/hello_world.so --strip
 
 ```
-
