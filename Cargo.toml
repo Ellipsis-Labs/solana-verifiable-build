@@ -7,3 +7,5 @@ edition = "2021"
 
 [dependencies]
 clap = { version = "4.1.4", features = ["derive"] }
+anyhow = "1.0.68"
+rust-shell = "0.2.0"
