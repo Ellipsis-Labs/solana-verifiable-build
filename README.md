@@ -9,7 +9,7 @@ Once the installation is complete, make sure that the server has been started: (
 To install the verifier cli, run the following in your shell:
 
 ```
-
+bash <(curl -sSf https://raw.githubusercontent.com/Ellipsis-Labs/solana-verifiable-build/v1/verifier-cli-install.sh)
 ```
 
 ## Example Walkthrough
