@@ -168,6 +168,9 @@ pub fn verify(
     let mut hasher = Sha1::new();
     hasher.update(account_data);
     let program_hash = hasher.finalize();
+    println!("Executable hash: {}", executable_hash);
+    println!("Program hash: {}", hex::encode(program_hash));
+
     if hex::encode(program_hash) != executable_hash {
         println!("Executable hash mismatch");
         return Err(anyhow::Error::msg("Executable hash mismatch"));
