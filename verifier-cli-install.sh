@@ -58,7 +58,7 @@ echo "$(CYN "1.") 🖥  $(CYN "Downloading distribution")"
 echo ""
 
 # downloads the distribution file
-REMOTE="https://github.com/Ellipsis-Labs/solana-verifiable-build/releases/download/v0.1.0/"
+REMOTE="https://github.com/Ellipsis-Labs/solana-verifiable-build/releases/download/v1/verifier-cli"
 echo "  => downloading from: $(CYN $REMOTE$BIN"-"$DIST)"
 curl -L $REMOTE$BIN"-"$DIST --output "$SOURCE/$DIST" 
 abort_on_error $?
