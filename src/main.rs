@@ -24,7 +24,7 @@ enum SubCommand {
     },
     Verify {
         #[clap(short, long)]
-        name: String,
+        executable_path: String,
         #[clap(short, long)]
         image: String,
         #[clap(short, long, default_value = "https://api.mainnet-beta.solana.com")]
@@ -54,16 +54,19 @@ fn main() -> anyhow::Result<()> {
             run_cmd!(docker logs --follow $container_id)?;
         }
         SubCommand::Verify {
-            name: program_name,
+            executable_path,
             image,
             url: network,
             program_id,
         } => {
-            println!("Verifying image: {:?}, on network {:?}", image, network);
+            println!(
+                "Verifying image: {:?}, on network {:?} against program ID {}",
+                image, network, program_id
+            );
             let output = run_fun!(
                 docker run --rm
                 -it $image  sh -c
-                "(wc -c target/deploy/$program_name.so && shasum target/deploy/$program_name.so) | tr '\n' ' '"
+                "(wc -c $executable_path && shasum $executable_path) | tr '\n' ' '"
                 | tail -n 1
                 | awk "{print $1, $3}"
             )?;
@@ -85,7 +88,7 @@ fn main() -> anyhow::Result<()> {
                 println!("Executable hash mismatch");
                 return Err(anyhow::Error::msg("Executable hash mismatch"));
             } else {
-                println!("Executable hash matches on-chain program");
+                println!("Executable matches on-chain program data ✅");
             }
         }
     }
