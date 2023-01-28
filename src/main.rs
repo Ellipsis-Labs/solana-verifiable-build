@@ -1,8 +1,11 @@
 use clap::{Parser, Subcommand};
-
-#[macro_use]
-extern crate rust_shell;
-use std::{io::Read, process::Stdio};
+use cmd_lib::{init_builtin_logger, run_cmd, run_fun};
+use sha1::{Digest, Sha1};
+use solana_client::rpc_client::RpcClient;
+use solana_sdk::{
+    bpf_loader_upgradeable::{self, UpgradeableLoaderState},
+    pubkey::Pubkey,
+};
 
 #[derive(Parser, Debug)]
 #[clap(author = "Ellipsis", version, about)]
@@ -16,66 +19,75 @@ enum SubCommand {
     Build {
         #[clap(short, long)]
         filepath: Option<String>,
+        #[clap(short, long)]
+        base_image: Option<String>,
     },
     Verify {
         #[clap(short, long)]
-        github_url: String,
+        name: String,
         #[clap(short, long)]
-        network: String,
+        image: String,
+        #[clap(short, long, default_value = "https://api.mainnet-beta.solana.com")]
+        url: String,
         #[clap(short, long)]
-        program_id: String,
+        program_id: Pubkey,
     },
 }
 
-fn main() {
+fn main() -> anyhow::Result<()> {
     let args = Arguments::parse();
     match args.subcommand {
-        SubCommand::Build { filepath } => {
-            println!("Building from path: {:?}", filepath);
+        SubCommand::Build {
+            filepath,
+            base_image,
+        } => {
             let path = filepath.unwrap_or("$(pwd)".to_string());
-
-            let mut run = cmd!(
-                "docker run --rm -v {}:/work -dit ellipsislabs/solana:1.14.13 sh -c \"cargo build-sbf -- --locked --frozen 2>&1\"",
-                &path
-            );
-
-            {
-                let command = &mut run.command;
-                command.stdout(Stdio::piped());
-            }
-
-            // Access std::process::Child.
-            let mut container_id = String::new();
-            let shell_child = run.spawn().unwrap();
-            {
-                let mut lock = shell_child.0.write().unwrap();
-                let child = &mut lock.as_mut().unwrap().child;
-                child
-                    .stdout
-                    .as_mut()
-                    .unwrap()
-                    .read_to_string(&mut container_id)
-                    .unwrap();
-            }
-            println!("waiting for container: {}", &container_id);
-
-            let mut wait = cmd!("docker logs --follow {}", &container_id.trim_end());
-            {
-                let command = &mut wait.command;
-                command.stdout(Stdio::piped());
-            }
-            // Access std::process::Child.
-            wait.run().unwrap();
+            let image = base_image.unwrap_or("ellipsislabs/solana:latest".to_string());
+            init_builtin_logger();
+            let container_id = run_fun!(
+                docker run
+                --rm
+                -v $path:/work
+                -dit $image
+                sh -c "cargo build-sbf -- --locked --frozen"
+            )?;
+            run_cmd!(docker logs --follow $container_id)?;
         }
         SubCommand::Verify {
-            github_url,
-            network,
+            name: program_name,
+            image,
+            url: network,
             program_id,
         } => {
-            println!(
-                "Verifying with github url: {:?}, on network {:?}",
-                github_url, network
-            );
+            println!("Verifying image: {:?}, on network {:?}", image, network);
+            let output = run_fun!(
+                docker run --rm
+                -it $image  sh -c
+                "(wc -c target/deploy/$program_name.so && shasum target/deploy/$program_name.so) | tr '\n' ' '"
+                | tail -n 1
+                | awk "{print $1, $3}"
+            )?;
+            let tokens = output.split_whitespace().collect::<Vec<_>>();
+            let executable_size = tokens[0].parse::<usize>()?;
+            let executable_hash = tokens[1];
+            let client = RpcClient::new(network);
+            let program_buffer =
+                Pubkey::find_program_address(&[program_id.as_ref()], &bpf_loader_upgradeable::id())
+                    .0;
+
+            let offset = UpgradeableLoaderState::size_of_programdata_metadata();
+            let account_data =
+                &client.get_account_data(&program_buffer)?[offset..offset + executable_size];
+            let mut hasher = Sha1::new();
+            hasher.update(account_data);
+            let program_hash = hasher.finalize();
+            if hex::encode(program_hash) != executable_hash {
+                println!("Executable hash mismatch");
+                return Err(anyhow::Error::msg("Executable hash mismatch"));
+            } else {
+                println!("Executable hash matches on-chain program");
+            }
         }
     }
+    Ok(())
 }
