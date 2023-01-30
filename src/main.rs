@@ -18,12 +18,14 @@ struct Arguments {
 
 #[derive(Subcommand, Debug)]
 enum SubCommand {
+    /// Deterministically build the program in an Docker container
     Build {
-        #[clap(short, long)]
+        /// Path to mount to the docker image
         filepath: Option<String>,
         #[clap(short, long)]
         base_image: Option<String>,
     },
+    /// Verifies a cached build from a docker image
     VerifyFromImage {
         #[clap(short, long)]
         executable_path_in_image: String,
@@ -34,20 +36,23 @@ enum SubCommand {
         #[clap(short, long)]
         program_id: Pubkey,
     },
+    /// Get the hash of a program binary from an executable file
     GetExecutableHash {
-        #[clap(short, long)]
+        /// Path to the executable
         filepath: String,
     },
+    /// Get the hash of a program binary from the deployed on-chain program
     GetProgramHash {
         #[clap(short, long, default_value = "https://api.mainnet-beta.solana.com")]
         url: String,
-        #[clap(short, long)]
+        /// Program ID
         program_id: Pubkey,
     },
+    /// Get the hash of a program binary from the deployed buffer address
     GetBufferHash {
         #[clap(short, long, default_value = "https://api.mainnet-beta.solana.com")]
         url: String,
-        #[clap(short, long)]
+        /// Address of the buffer account containing the deployed program data
         buffer_address: Pubkey,
     },
 }
@@ -64,7 +69,7 @@ fn main() -> anyhow::Result<()> {
             image,
             url: network,
             program_id,
-        } => verify(executable_path, image, network, program_id),
+        } => verify_from_image(executable_path, image, network, program_id),
         SubCommand::GetExecutableHash { filepath } => {
             let mut f = std::fs::File::open(&filepath)?;
             let metadata = std::fs::metadata(&filepath)?;
@@ -134,7 +139,7 @@ pub fn build(filepath: Option<String>, base_image: Option<String>) -> anyhow::Re
     Ok(())
 }
 
-pub fn verify(
+pub fn verify_from_image(
     executable_path: String,
     image: String,
     network: String,
@@ -166,8 +171,8 @@ pub fn verify(
     let mut hasher = Sha1::new();
     hasher.update(account_data);
     let program_hash = hasher.finalize();
-    println!("Executable hash: {}", executable_hash);
-    println!("Program hash: {}", hex::encode(program_hash));
+    println!("Executable hash (un-stripped): {}", executable_hash);
+    println!("Program hash (un-stripped): {}", hex::encode(program_hash));
 
     if hex::encode(program_hash) != executable_hash {
         println!("Executable hash mismatch");
