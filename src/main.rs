@@ -24,9 +24,9 @@ enum SubCommand {
         #[clap(short, long)]
         base_image: Option<String>,
     },
-    Verify {
+    VerifyFromImage {
         #[clap(short, long)]
-        executable_path: String,
+        executable_path_in_image: String,
         #[clap(short, long)]
         image: String,
         #[clap(short, long, default_value = "https://api.mainnet-beta.solana.com")]
@@ -37,16 +37,18 @@ enum SubCommand {
     GetExecutableHash {
         #[clap(short, long)]
         filepath: String,
-        #[clap(short, long, default_value = "false")]
-        strip: bool,
     },
     GetProgramHash {
         #[clap(short, long, default_value = "https://api.mainnet-beta.solana.com")]
         url: String,
         #[clap(short, long)]
         program_id: Pubkey,
+    },
+    GetBufferHash {
+        #[clap(short, long, default_value = "https://api.mainnet-beta.solana.com")]
+        url: String,
         #[clap(short, long)]
-        length: Option<usize>,
+        buffer_address: Pubkey,
     },
 }
 
@@ -57,61 +59,57 @@ fn main() -> anyhow::Result<()> {
             filepath,
             base_image,
         } => build(filepath, base_image),
-        SubCommand::Verify {
-            executable_path,
+        SubCommand::VerifyFromImage {
+            executable_path_in_image: executable_path,
             image,
             url: network,
             program_id,
         } => verify(executable_path, image, network, program_id),
-        SubCommand::GetExecutableHash { filepath, strip } => {
+        SubCommand::GetExecutableHash { filepath } => {
             let mut f = std::fs::File::open(&filepath)?;
             let metadata = std::fs::metadata(&filepath)?;
             let mut buffer = vec![0; metadata.len() as usize];
             f.read(&mut buffer)?;
-            if strip {
-                buffer = buffer
-                    .into_iter()
-                    .rev()
-                    .skip_while(|&x| x == 0)
-                    .collect::<Vec<_>>();
-                buffer = buffer.iter().map(|x| *x).rev().collect::<Vec<_>>();
-            }
-            let mut hasher = Sha1::new();
-            hasher.update(&buffer);
-            let program_hash = hasher.finalize();
+            let program_hash = get_binary_hash(buffer);
             println!("{}", hex::encode(program_hash));
             Ok(())
         }
-        SubCommand::GetProgramHash {
+        SubCommand::GetBufferHash {
             url,
-            program_id,
-            length,
+            buffer_address,
         } => {
+            let client = RpcClient::new(url);
+            let offset = UpgradeableLoaderState::size_of_buffer_metadata();
+            let account_data = client.get_account_data(&buffer_address)?[offset..].to_vec();
+            let program_hash = get_binary_hash(account_data);
+            println!("{}", hex::encode(program_hash));
+            Ok(())
+        }
+        SubCommand::GetProgramHash { url, program_id } => {
             let client = RpcClient::new(url);
             let program_buffer =
                 Pubkey::find_program_address(&[program_id.as_ref()], &bpf_loader_upgradeable::id())
                     .0;
             let offset = UpgradeableLoaderState::size_of_programdata_metadata();
-
             let account_data = client.get_account_data(&program_buffer)?[offset..].to_vec();
-            let buffer = if let Some(l) = length {
-                account_data[..l].to_vec()
-            } else {
-                let mut buffer = account_data
-                    .into_iter()
-                    .rev()
-                    .skip_while(|&x| x == 0)
-                    .collect::<Vec<_>>();
-                buffer = buffer.iter().map(|x| *x).rev().collect::<Vec<_>>();
-                buffer
-            };
-            let mut hasher = Sha1::new();
-            hasher.update(&buffer);
-            let program_hash = hasher.finalize();
+            let program_hash = get_binary_hash(account_data);
             println!("{}", hex::encode(program_hash));
             Ok(())
         }
     }
+}
+
+pub fn get_binary_hash(bytes: Vec<u8>) -> String {
+    let mut hasher = Sha1::new();
+    let mut buffer = bytes
+        .into_iter()
+        .rev()
+        .skip_while(|&x| x == 0)
+        .collect::<Vec<_>>();
+    buffer = buffer.iter().map(|x| *x).rev().collect::<Vec<_>>();
+    hasher.update(&buffer);
+    let program_hash = hasher.finalize();
+    hex::encode(program_hash)
 }
 
 pub fn build(filepath: Option<String>, base_image: Option<String>) -> anyhow::Result<()> {
