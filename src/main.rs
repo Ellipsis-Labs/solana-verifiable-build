@@ -94,7 +94,7 @@ fn main() -> anyhow::Result<()> {
             let account_data = client.get_account_data(&program_buffer)?[offset..].to_vec();
             let program_hash = get_binary_hash(account_data);
             println!("{}", program_hash);
-            Ok(()
+            Ok(())
         }
     }
 }
