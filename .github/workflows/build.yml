@@ -17,7 +17,7 @@ jobs:
           name: ${{ github.ref_name }}
           draft: false
           prerelease: false
-          generate_release_notes: false
+          generate_release_notes: true
 
   build_release:
     name: Build Release
@@ -62,3 +62,4 @@ jobs:
         with:
           name: ${{ matrix.asset_name }}
           path: ${{ matrix.artifact_path }}
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
