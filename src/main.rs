@@ -71,7 +71,7 @@ fn main() -> anyhow::Result<()> {
             let mut buffer = vec![0; metadata.len() as usize];
             f.read(&mut buffer)?;
             let program_hash = get_binary_hash(buffer);
-            println!("{}", hex::encode(program_hash));
+            println!("{}", program_hash);
             Ok(())
         }
         SubCommand::GetBufferHash {
@@ -82,7 +82,7 @@ fn main() -> anyhow::Result<()> {
             let offset = UpgradeableLoaderState::size_of_buffer_metadata();
             let account_data = client.get_account_data(&buffer_address)?[offset..].to_vec();
             let program_hash = get_binary_hash(account_data);
-            println!("{}", hex::encode(program_hash));
+            println!("{}", program_hash);
             Ok(())
         }
         SubCommand::GetProgramHash { url, program_id } => {
@@ -93,8 +93,8 @@ fn main() -> anyhow::Result<()> {
             let offset = UpgradeableLoaderState::size_of_programdata_metadata();
             let account_data = client.get_account_data(&program_buffer)?[offset..].to_vec();
             let program_hash = get_binary_hash(account_data);
-            println!("{}", hex::encode(program_hash));
-            Ok(())
+            println!("{}", program_hash);
+            Ok(()
         }
     }
 }
