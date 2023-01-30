@@ -32,6 +32,8 @@ This the output:
 Verifying image: "ellipsislabs/hello_world_verifiable_build:latest", on network "https://api.mainnet-beta.solana.com" against program ID 2ZrriTQSVekoj414Ynysd48jyn4AX6ZF4TTJRqHfbJfn
 Executable path in container: "examples/hello_world/target/deploy/hello_world.so"
 
+Executable hash (un-stripped): 79061f569f4b23728b3412153dedf5c5d4109257
+Program hash (un-stripped): 79061f569f4b23728b3412153dedf5c5d4109257
 Executable matches on-chain program data ✅
 ```
 
