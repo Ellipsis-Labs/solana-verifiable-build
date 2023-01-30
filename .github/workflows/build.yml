@@ -1,0 +1,56 @@
+name: Create Release
+
+on:
+  push:
+    tags:
+      - 'v*' # Trigger when a commit is tagged with a new version. TODO: Use a filter pattern for major releases only.
+
+jobs:
+  create_release:
+    name: Create Release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Create Release
+        id: create_release
+        uses: softprops/action-gh-release@v1
+        with:
+          name: ${{ github.ref_name }}
+          draft: false
+          prerelease: false
+          generate_release_notes: false
+
+  build_release:
+    name: Build Release
+    needs: create_release
+    strategy: # Run the below on several runners
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        include:
+          - os: ubuntu-latest
+            release_suffix: ubuntu
+          - os: macos-latest
+            release_suffix: mac
+          - os: windows-latest
+            release_suffix: windows
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+
+      - name: Run Linux Build
+        if: matrix.os == 'ubuntu-latest'
+        run: echo "Ubuntu Latest" > release_ubuntu
+      
+      - name: Run Mac Build
+        if: matrix.os == 'macos-latest'
+        run: echo "MacOS Latest" > release_mac
+
+      - name: Run Windows Build
+        if: matrix.os == 'windows-latest'
+        run: echo "Windows Latest" > release_windows
+
+      - name: Release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ needs.create_release.outputs.tag-name }}
+          files: release_${{ matrix.release_suffix }}
