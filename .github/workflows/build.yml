@@ -46,7 +46,7 @@ jobs:
             asset_name: <name>-macos
     steps:
       - name: Checkout code
-        uses: actions/checkout@1
+        uses: actions/checkout@v1
             
       - name: Use Rust toolchain
         uses: actions-rs/toolchain@v1
