@@ -34,16 +34,16 @@ jobs:
         include:
           - name: linux
             os: ubuntu-latest
-            artifact_name: target/release/<name>
-            asset_name: <name>-linux
+            artifact_path: target/release/verifier-cli
+            asset_name: verifier-cli-linux
           - name: windows
             os: windows-latest
-            artifact_name: target/release/<name>.exe
-            asset_name: <name>-windows
+            artifact_path: target/release/verifier-cli.exe
+            asset_name: verifier-cli-windows
           - name: macos
             os: macos-latest
-            artifact_name: target/release/<name>
-            asset_name: <name>-macos
+            artifact_path: target/release/verifier-cli
+            asset_name: verifier-cli-macos
     steps:
       - name: Checkout code
         uses: actions/checkout@v1
@@ -61,4 +61,4 @@ jobs:
         uses: actions/upload-artifact@v2
         with:
           name: ${{ matrix.asset_name }}
-          path: ${{ matrix.artifact_name }}
+          path: ${{ matrix.artifact_path }}
