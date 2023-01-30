@@ -51,17 +51,8 @@ Which will return the following hash:
 627a5b29a06179d08ac5eab2c085703e59decbe6
 ```
 
-By default, this command will strip any trailing zeros away from the program executable file and run the sha1 algorithm against it to compute the hash. If we knew the exact length of this executable, we could run:
+By default, this command will strip any trailing zeros away from the program executable file and run the sha1 algorithm against it to compute the hash.
 
-```
-verifier-cli get-program-hash -p 2ZrriTQSVekoj414Ynysd48jyn4AX6ZF4TTJRqHfbJfn -l 20608
-```
-
-And this would be the output:
-
-```
-79061f569f4b23728b3412153dedf5c5d4109257
-```
 
 To manually verify this build, one could run the following from the root of this repository. _This command takes a long time because it is building the binary in a Docker container_
 
@@ -78,18 +69,10 @@ verifier-cli get-executable-hash -f target/deploy/hello_world.so
 
 ```
 
-And you will see that this returns the same value as the `get-program-hash` command with the custom length
+This will return the hash of the stripped executable
 
 ```
 
-79061f569f4b23728b3412153dedf5c5d4109257
-
-```
-
-To get the stripped version, run:
-
-```
-
-verifier-cli get-executable-hash -f target/deploy/hello_world.so --strip
+627a5b29a06179d08ac5eab2c085703e59decbe6
 
 ```
