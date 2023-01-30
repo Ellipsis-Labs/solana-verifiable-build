@@ -58,7 +58,7 @@ jobs:
         run: cargo build --release --locked
 
       - name: Upload binaries to release
-        uses: actions/upload-artifact@v2
+        uses: softprops/action-gh-release@v1
         with:
           name: ${{ matrix.asset_name }}
           path: ${{ matrix.artifact_path }}
