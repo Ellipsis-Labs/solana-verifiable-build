@@ -62,11 +62,11 @@ jobs:
           ASSET_NAME: ${{matrix.asset_name}}
           EXEC_PATH: $${{matrix.artifact_path}}
         run: | 
-        echo "asset name: $ASSET_NAME executable path: $EXEC_PATH"
-        mv EXEC_PATH $ASSET_NAME
+        echo "asset name: ${ASSET_NAME} executable path: ${EXEC_PATH}"
+        mv ${EXEC_PATH} ${ASSET_NAME}
 
       - name: Upload binaries to release
         uses: softprops/action-gh-release@v1
         with:
-          files: $ASSET_NAME
+          files: ${{matrix.asset_name}}
           fail_on_unmatched_files: true
