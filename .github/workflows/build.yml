@@ -27,7 +27,6 @@ jobs:
       matrix:
         name: [
             linux,
-            windows,
             macos
         ]
 
@@ -36,10 +35,6 @@ jobs:
             os: ubuntu-latest
             artifact_path: target/release/verifier-cli
             asset_name: verifier-cli-linux
-          - name: windows
-            os: windows-latest
-            artifact_path: target/release/verifier-cli.exe
-            asset_name: verifier-cli-windows
           - name: macos
             os: macos-latest
             artifact_path: target/release/verifier-cli
