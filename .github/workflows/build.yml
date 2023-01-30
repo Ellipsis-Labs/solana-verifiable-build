@@ -34,7 +34,7 @@ jobs:
         include:
           - name: linux
             os: ubuntu-latest
-            artifact_path: target/release/verifier-cli-linux
+            artifact_path: target/release/verifier-cli
             asset_name: verifier-cli-linux
           - name: windows
             os: windows-latest
@@ -42,7 +42,7 @@ jobs:
             asset_name: verifier-cli-windows
           - name: macos
             os: macos-latest
-            artifact_path: target/release/verifier-cli-macos
+            artifact_path: target/release/verifier-cli
             asset_name: verifier-cli-macos
     steps:
       - name: Checkout code
@@ -60,5 +60,5 @@ jobs:
       - name: Upload binaries to release
         uses: softprops/action-gh-release@v1
         with:
+          name: ${{ matrix.asset_name }}
           files: ${{ matrix.artifact_path }}
-          upload_url: ${{ steps.create_release.outputs.upload_url }}
