@@ -61,5 +61,5 @@ jobs:
         uses: actions/upload-artifact@v2
         with:
           name: ${{ matrix.asset_name }}
-          path: ${{ matrix.artifact_path }}
+          files: ${{ matrix.artifact_path }}
           upload_url: ${{ steps.create_release.outputs.upload_url }}
