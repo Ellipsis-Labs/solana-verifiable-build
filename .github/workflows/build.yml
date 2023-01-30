@@ -57,8 +57,12 @@ jobs:
       - name: Build
         run: cargo build --release --locked
 
+      - name: Rename executable based on OS
+        run: NAME=${{ matrix.asset_name }}
+        run: mv ${{matrix.artifact_path}} $NAME
+
       - name: Upload binaries to release
         uses: softprops/action-gh-release@v1
         with:
-          files: ${{ matrix.artifact_path }}
-          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          files: $NAME
+          fail_on_unmatched_files: true
