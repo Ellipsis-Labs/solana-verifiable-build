@@ -6,10 +6,10 @@ In order for this CLI to work properly, you must have `docker` installed on your
 
 Once the installation is complete, make sure that the server has been started: (https://docs.docker.com/config/daemon/start/)
 
-To install the verifier cli, run the following in your shell (TODO fix this link):
+To install the verifier cli, run the following in your shell:
 
 ```
-bash <(curl -sSf https://raw.githubusercontent.com/Ellipsis-Labs/solana-verifiable-build/v1/verifier-cli-install.sh)
+bash <(curl -sSf https://raw.githubusercontent.com/Ellipsis-Labs/solana-verifiable-build/master/verifier-cli-install.sh)
 ```
 
 ## Example Walkthrough
