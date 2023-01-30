@@ -23,7 +23,6 @@ jobs:
     name: Build Release
     needs: create_release
     strategy: # Run the below on several runners
-    runs-on: ${{ matrix.os }}
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
         include:
@@ -39,6 +38,7 @@ jobs:
             os: macos-latest
             artifact_name: target/release/<name>
             asset_name: <name>-macos
+    runs-on: ${{ matrix.os }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
