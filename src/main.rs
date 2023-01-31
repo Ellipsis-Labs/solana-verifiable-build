@@ -149,16 +149,6 @@ pub fn build(filepath: Option<String>, base_image: Option<String>) -> anyhow::Re
         sh -c "cargo build-sbf -- --locked --frozen"
     )?;
     run_cmd!(docker logs --follow $container_id)?;
-    let build_path = Path::new(&path);
-    let toml_path = build_path.join("Cargo.toml");
-    let toml: Config = toml::from_str(&std::fs::read_to_string(&toml_path)?)?;
-    let package_name = toml.package.name;
-    let executable_path = Path::new(&path)
-        .join("target")
-        .join("deploy")
-        .join(format!("{}.so", package_name));
-    let program_hash = get_file_hash(executable_path.to_str().unwrap())?;
-    println!("Executable hash: {}", program_hash);
     Ok(())
 }
 
