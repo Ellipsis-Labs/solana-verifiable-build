@@ -175,10 +175,10 @@ fn get_binary_hash(program_data: Vec<u8>) -> String {
 }
 
 pub fn get_file_hash(filepath: &str) -> Result<String, std::io::Error> {
-    let mut f = std::fs::File::open(&filepath)?;
-    let metadata = std::fs::metadata(&filepath)?;
+    let mut f = std::fs::File::open(filepath)?;
+    let metadata = std::fs::metadata(filepath)?;
     let mut buffer = vec![0; metadata.len() as usize];
-    f.read(&mut buffer)?;
+    f.read_exact(&mut buffer)?;
     Ok(get_binary_hash(buffer))
 }
 
@@ -187,11 +187,11 @@ pub fn build(filepath: Option<String>, base_image: Option<String>) -> anyhow::Re
         std::env::current_dir()?
             .as_os_str()
             .to_str()
-            .ok_or(anyhow::Error::msg("Invalid path string"))?
+            .ok_or_else(|| anyhow::Error::msg("Invalid path string"))?
             .to_string(),
     );
     println!("Mounting path: {}", path);
-    let image = base_image.unwrap_or("ellipsislabs/solana:latest".to_string());
+    let image = base_image.unwrap_or_else(|| "ellipsislabs/solana:latest".to_string());
     init_builtin_logger();
     let container_id = run_fun!(
         docker run
@@ -215,7 +215,7 @@ pub fn verify_from_image(
         image, network, program_id
     );
     println!("Executable path in container: {:?}", executable_path);
-    println!("");
+    println!(" ");
     let container_id = run_fun!(
         docker run --rm -dit $image
     )?;
