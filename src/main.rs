@@ -81,11 +81,7 @@ fn main() -> anyhow::Result<()> {
             program_id,
         } => verify_from_image(executable_path, image, network, program_id),
         SubCommand::GetExecutableHash { filepath } => {
-            let mut f = std::fs::File::open(&filepath)?;
-            let metadata = std::fs::metadata(&filepath)?;
-            let mut buffer = vec![0; metadata.len() as usize];
-            f.read(&mut buffer)?;
-            let program_hash = get_binary_hash(buffer);
+            let program_hash = get_file_hash(&filepath)?;
             println!("{}", program_hash);
             Ok(())
         }
@@ -126,6 +122,14 @@ fn get_binary_hash(program_data: Vec<u8>) -> String {
     sha256::digest(&buffer[..])
 }
 
+pub fn get_file_hash(filepath: &str) -> Result<String, std::io::Error> {
+    let mut f = std::fs::File::open(&filepath)?;
+    let metadata = std::fs::metadata(&filepath)?;
+    let mut buffer = vec![0; metadata.len() as usize];
+    f.read(&mut buffer)?;
+    Ok(get_binary_hash(buffer))
+}
+
 pub fn build(filepath: Option<String>, base_image: Option<String>) -> anyhow::Result<()> {
     let path = filepath.unwrap_or(
         std::env::current_dir()?
@@ -153,11 +157,7 @@ pub fn build(filepath: Option<String>, base_image: Option<String>) -> anyhow::Re
         .join("target")
         .join("deploy")
         .join(format!("{}.so", package_name));
-    let mut f = std::fs::File::open(&executable_path)?;
-    let metadata = std::fs::metadata(&executable_path)?;
-    let mut buffer = vec![0; metadata.len() as usize];
-    f.read(&mut buffer)?;
-    let program_hash = get_binary_hash(buffer);
+    let program_hash = get_file_hash(executable_path.to_str().unwrap())?;
     println!("Executable hash: {}", program_hash);
     Ok(())
 }
@@ -174,24 +174,18 @@ pub fn verify_from_image(
     );
     println!("Executable path in container: {:?}", executable_path);
     println!("");
-    let output = run_fun!(
-        docker run --rm
-        -it $image  sh -c
-        "(wc -c $executable_path && shasum -a 256 $executable_path) | tr '\n' ' '"
-        | tail -n 1
-        | awk "{print $1, $3}"
+    let container_id = run_fun!(
+        docker run --rm -dit $image
     )?;
+    run_cmd!(docker cp $container_id:/build/$executable_path /tmp/program.so)?;
 
-    let tokens = output.split_whitespace().collect::<Vec<_>>();
-    let executable_size = tokens[0].parse::<usize>()?;
-    let executable_hash = tokens[1];
+    let executable_hash = get_file_hash("/tmp/program.so")?;
     let client = RpcClient::new(network);
     let program_buffer =
         Pubkey::find_program_address(&[program_id.as_ref()], &bpf_loader_upgradeable::id()).0;
-
     let offset = UpgradeableLoaderState::size_of_programdata_metadata();
-    let account_data = &client.get_account_data(&program_buffer)?[offset..offset + executable_size];
-    let program_hash = sha256::digest(account_data);
+    let account_data = &client.get_account_data(&program_buffer)?[offset..];
+    let program_hash = get_binary_hash(account_data.to_vec());
     println!("Executable hash (un-stripped): {}", executable_hash);
     println!("Program hash (un-stripped): {}", program_hash);
 
