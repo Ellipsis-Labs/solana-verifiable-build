@@ -186,8 +186,8 @@ pub fn verify_from_image(
     let offset = UpgradeableLoaderState::size_of_programdata_metadata();
     let account_data = &client.get_account_data(&program_buffer)?[offset..];
     let program_hash = get_binary_hash(account_data.to_vec());
-    println!("Executable hash (un-stripped): {}", executable_hash);
-    println!("Program hash (un-stripped): {}", program_hash);
+    println!("Executable hash: {}", executable_hash);
+    println!("Program hash: {}", program_hash);
 
     if program_hash != executable_hash {
         println!("Executable hash mismatch");
