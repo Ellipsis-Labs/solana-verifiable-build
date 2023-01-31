@@ -190,8 +190,8 @@ pub fn verify_from_image(
     println!("Program hash: {}", program_hash);
 
     // Cleanup docker and rm file
-    run_cmd!(docker kill $container_id)?;
-    run_cmd!(rm "/tmp/program.so")?;
+    run_fun!(docker kill $container_id)?;
+    run_fun!(rm "/tmp/program.so")?;
 
     if program_hash != executable_hash {
         println!("Executable hash mismatch");
