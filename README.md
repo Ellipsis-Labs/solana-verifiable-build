@@ -48,11 +48,10 @@ verifier-cli get-program-hash -p 2ZrriTQSVekoj414Ynysd48jyn4AX6ZF4TTJRqHfbJfn
 Which will return the following hash:
 
 ```
-627a5b29a06179d08ac5eab2c085703e59decbe6
+08d91368d349c2b56c712422f6d274a1e8f1946ff2ecd1dc3efc3ebace52a760
 ```
 
 By default, this command will strip any trailing zeros away from the program executable file and run the sha1 algorithm against it to compute the hash.
-
 
 To manually verify this build, one could run the following from the root of this repository. _This command takes a long time because it is building the binary in a Docker container_
 
@@ -73,6 +72,6 @@ This will return the hash of the stripped executable
 
 ```
 
-627a5b29a06179d08ac5eab2c085703e59decbe6
+08d91368d349c2b56c712422f6d274a1e8f1946ff2ecd1dc3efc3ebace52a760
 
 ```

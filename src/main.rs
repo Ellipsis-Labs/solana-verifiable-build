@@ -1,8 +1,8 @@
-use std::io::Read;
+use std::{io::Read, path::Path};
 
 use clap::{Parser, Subcommand};
 use cmd_lib::{init_builtin_logger, run_cmd, run_fun};
-use sha1::{Digest, Sha1};
+use serde::Deserialize;
 use solana_client::rpc_client::RpcClient;
 use solana_sdk::{
     bpf_loader_upgradeable::{self, UpgradeableLoaderState},
@@ -16,12 +16,22 @@ struct Arguments {
     subcommand: SubCommand,
 }
 
+#[derive(Deserialize, Debug)]
+struct Config {
+    package: Package,
+}
+
+#[derive(Deserialize, Debug)]
+struct Package {
+    name: String,
+}
+
 #[derive(Subcommand, Debug)]
 enum SubCommand {
     /// Deterministically build the program in an Docker container
     Build {
         /// Path to mount to the docker image
-        filepath: Option<String>,
+        build_dir: Option<String>,
         #[clap(short, long)]
         base_image: Option<String>,
     },
@@ -61,7 +71,7 @@ fn main() -> anyhow::Result<()> {
     let args = Arguments::parse();
     match args.subcommand {
         SubCommand::Build {
-            filepath,
+            build_dir: filepath,
             base_image,
         } => build(filepath, base_image),
         SubCommand::VerifyFromImage {
@@ -104,17 +114,16 @@ fn main() -> anyhow::Result<()> {
     }
 }
 
-pub fn get_binary_hash(bytes: Vec<u8>) -> String {
-    let mut hasher = Sha1::new();
-    let mut buffer = bytes
+fn get_binary_hash(program_data: Vec<u8>) -> String {
+    let buffer = program_data
         .into_iter()
         .rev()
         .skip_while(|&x| x == 0)
+        .collect::<Vec<_>>()
+        .into_iter()
+        .rev()
         .collect::<Vec<_>>();
-    buffer = buffer.iter().map(|x| *x).rev().collect::<Vec<_>>();
-    hasher.update(&buffer);
-    let program_hash = hasher.finalize();
-    hex::encode(program_hash)
+    sha256::digest(&buffer[..])
 }
 
 pub fn build(filepath: Option<String>, base_image: Option<String>) -> anyhow::Result<()> {
@@ -131,11 +140,25 @@ pub fn build(filepath: Option<String>, base_image: Option<String>) -> anyhow::Re
     let container_id = run_fun!(
         docker run
         --rm
-        -v $path:/work
+        -v $path:/build
         -dit $image
         sh -c "cargo build-sbf -- --locked --frozen"
     )?;
     run_cmd!(docker logs --follow $container_id)?;
+    let build_path = Path::new(&path);
+    let toml_path = build_path.join("Cargo.toml");
+    let toml: Config = toml::from_str(&std::fs::read_to_string(&toml_path)?)?;
+    let package_name = toml.package.name;
+    let executable_path = Path::new(&path)
+        .join("target")
+        .join("deploy")
+        .join(format!("{}.so", package_name));
+    let mut f = std::fs::File::open(&executable_path)?;
+    let metadata = std::fs::metadata(&executable_path)?;
+    let mut buffer = vec![0; metadata.len() as usize];
+    f.read(&mut buffer)?;
+    let program_hash = get_binary_hash(buffer);
+    println!("Executable hash: {}", program_hash);
     Ok(())
 }
 
@@ -154,7 +177,7 @@ pub fn verify_from_image(
     let output = run_fun!(
         docker run --rm
         -it $image  sh -c
-        "(wc -c $executable_path && shasum $executable_path) | tr '\n' ' '"
+        "(wc -c $executable_path && shasum -a 256 $executable_path) | tr '\n' ' '"
         | tail -n 1
         | awk "{print $1, $3}"
     )?;
@@ -168,13 +191,11 @@ pub fn verify_from_image(
 
     let offset = UpgradeableLoaderState::size_of_programdata_metadata();
     let account_data = &client.get_account_data(&program_buffer)?[offset..offset + executable_size];
-    let mut hasher = Sha1::new();
-    hasher.update(account_data);
-    let program_hash = hasher.finalize();
+    let program_hash = sha256::digest(account_data);
     println!("Executable hash (un-stripped): {}", executable_hash);
-    println!("Program hash (un-stripped): {}", hex::encode(program_hash));
+    println!("Program hash (un-stripped): {}", program_hash);
 
-    if hex::encode(program_hash) != executable_hash {
+    if program_hash != executable_hash {
         println!("Executable hash mismatch");
         return Err(anyhow::Error::msg("Executable hash mismatch"));
     } else {
