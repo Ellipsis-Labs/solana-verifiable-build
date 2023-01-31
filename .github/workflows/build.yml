@@ -33,12 +33,12 @@ jobs:
         include:
           - name: linux
             os: ubuntu-latest
-            artifact_path: target/release/verifier-cli
-            asset_name: verifier-cli-linux
+            artifact_path: target/release/solana-verify
+            asset_name: solana-verify-linux
           - name: macos
             os: macos-latest
-            artifact_path: target/release/verifier-cli
-            asset_name: verifier-cli-macos
+            artifact_path: target/release/solana-verify
+            asset_name: solana-verify-macos
     steps:
       - name: Checkout code
         uses: actions/checkout@v1
