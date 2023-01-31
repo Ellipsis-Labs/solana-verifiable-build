@@ -1,8 +1,7 @@
-use std::{io::Read, path::Path};
+use std::io::Read;
 
 use clap::{Parser, Subcommand};
 use cmd_lib::{init_builtin_logger, run_cmd, run_fun};
-use serde::Deserialize;
 use solana_client::rpc_client::RpcClient;
 use solana_sdk::{
     bpf_loader_upgradeable::{self, UpgradeableLoaderState},
@@ -14,16 +13,6 @@ use solana_sdk::{
 struct Arguments {
     #[clap(subcommand)]
     subcommand: SubCommand,
-}
-
-#[derive(Deserialize, Debug)]
-struct Config {
-    package: Package,
-}
-
-#[derive(Deserialize, Debug)]
-struct Package {
-    name: String,
 }
 
 #[derive(Subcommand, Debug)]
