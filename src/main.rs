@@ -1,4 +1,4 @@
-use std::io::Read;
+use std::{io::Read, path::PathBuf};
 
 use clap::{Parser, Subcommand};
 use cmd_lib::{init_builtin_logger, run_cmd, run_fun};
@@ -54,6 +54,17 @@ enum SubCommand {
         /// Address of the buffer account containing the deployed program data
         buffer_address: Pubkey,
     },
+    VerifyFromRepo {
+        #[clap(short, long)]
+        solana_program_path: String,
+        repo_url: String,
+        #[clap(short, long, default_value = "https://api.mainnet-beta.solana.com")]
+        connection_url: String,
+        #[clap(short, long)]
+        program_id: Pubkey,
+        #[clap(short, long)]
+        base_image: Option<String>,
+    },
 }
 
 fn main() -> anyhow::Result<()> {
@@ -62,7 +73,10 @@ fn main() -> anyhow::Result<()> {
         SubCommand::Build {
             build_dir: filepath,
             base_image,
-        } => build(filepath, base_image),
+        } => {
+            build(filepath, base_image)?;
+            Ok(())
+        }
         SubCommand::VerifyFromImage {
             executable_path_in_image: executable_path,
             image,
@@ -94,6 +108,55 @@ fn main() -> anyhow::Result<()> {
             let account_data = client.get_account_data(&program_buffer)?[offset..].to_vec();
             let program_hash = get_binary_hash(account_data);
             println!("{}", program_hash);
+            Ok(())
+        }
+        SubCommand::VerifyFromRepo {
+            solana_program_path,
+            repo_url,
+            program_id,
+            connection_url,
+            base_image,
+        } => {
+            // Get source code from repo_url
+            let base_name = run_fun!(basename $repo_url)?;
+            run_fun!(git clone $repo_url /tmp/solana-verify/$base_name)?;
+            run_fun!(cd /tmp/solana-verify/$base_name)?;
+
+            // Get the absolute build path to the solana program directory to build inside docker
+            let build_path = PathBuf::from(format!("/tmp/solana-verify/{}", base_name))
+                .join(solana_program_path.clone());
+            println!("Build path: {:?}", build_path);
+
+            // Build the code using the docker container
+            build(Some(build_path.to_str().unwrap().to_string()), base_image)?;
+
+            // Get the hash of the build
+            let executable_path =
+                run_fun!(find $solana_program_path/target/deploy -type f -name "*.so")?;
+            let build_hash = get_file_hash(&executable_path)?;
+
+            // Get hash of on-chain program
+            let client = RpcClient::new(connection_url);
+            let program_buffer =
+                Pubkey::find_program_address(&[program_id.as_ref()], &bpf_loader_upgradeable::id())
+                    .0;
+            let offset = UpgradeableLoaderState::size_of_programdata_metadata();
+            let account_data = client.get_account_data(&program_buffer)?[offset..].to_vec();
+            let program_hash = get_binary_hash(account_data);
+
+            // Compare hashes
+            println!("Executable Program Hash from repo: {}", build_hash);
+            println!("On-chain Program Hash: {}", program_hash);
+
+            // Remove temp repo
+            run_fun!(rm -rf /tmp/solana-verify/$base_name)?;
+
+            if program_hash != build_hash {
+                println!("Executable hash mismatch");
+                return Err(anyhow::Error::msg("Executable hash mismatch"));
+            } else {
+                println!("Executable matches on-chain program data ✅");
+            }
             Ok(())
         }
     }
