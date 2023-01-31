@@ -45,7 +45,7 @@ Executable matches on-chain program data ✅
 
 ### Manual Verification
 
-To get the hash of this on-chain program, we can run the following:
+To get the hash of an on-chain program, we can run the following with a given program ID:
 
 ```
 solana-verify get-program-hash 2ZrriTQSVekoj414Ynysd48jyn4AX6ZF4TTJRqHfbJfn
