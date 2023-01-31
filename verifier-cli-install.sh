@@ -19,7 +19,7 @@ abort_on_error() {
     fi
 }
 
-CYN  "Verifier CLI installation script"
+CYN  "Solana Verify CLI installation script"
 echo "---------------------------------------"
 echo ""
 
@@ -40,7 +40,7 @@ case "$PROCESSOR" in
         ;;
 esac
  
-BIN="verifier-cli"
+BIN="solana-verify"
 SUFFIX="linux"
 
 if [ "$OS_FLAVOUR" = Darwin ]; then
@@ -52,7 +52,7 @@ if ["$OS_FLAVOUR" = Windows ]; then
     exit 1
 fi
 
-DIST="verifier-cli-$SUFFIX"
+DIST="$BIN-$SUFFIX"
 
 # creates a temporary directory to save the distribution file
 SOURCE="$(mktemp -d)"
@@ -129,7 +129,7 @@ else
             echo "  => adding '$TARGET' to 'PATH' variable in '$ENV_FILE'"
             echo "export PATH=\"$HOME/bin:\$PATH\"" >> "$ENV_FILE"
         else
-            echo "  => adding '$TARGET' to 'PATH' variable to execute 'verifier-cli' from any directory."
+            echo "  => adding '$TARGET' to 'PATH' variable to execute 'solana-verify' from any directory."
             echo "     - file '$(CYN $ENV_FILE)' was not found"
             echo "" 
             echo -n "$(CYN "Would you like to create '$ENV_FILE'? [y/n]") (default 'n'): "
