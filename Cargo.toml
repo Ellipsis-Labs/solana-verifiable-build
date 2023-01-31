@@ -1,5 +1,5 @@
 [package]
-name = "verifier-cli"
+name = "solana-verify"
 version = "0.1.0"
 edition = "2021"
 

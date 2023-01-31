@@ -3385,6 +3385,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "solana-verify"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap 4.1.4",
+ "cmd_lib",
+ "hex 0.3.2",
+ "serde",
+ "serde_json",
+ "sha256",
+ "solana-client",
+ "solana-sdk",
+ "toml 0.7.1",
+]
+
+[[package]]
 name = "solana-version"
 version = "1.14.13"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4010,22 +4026,6 @@ name = "vec_map"
 version = "0.8.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f1bddf1187be692e79c5ffeab891132dfb0f236ed36a43c7ed39f1165ee20191"
-
-[[package]]
-name = "verifier-cli"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "clap 4.1.4",
- "cmd_lib",
- "hex 0.3.2",
- "serde",
- "serde_json",
- "sha256",
- "solana-client",
- "solana-sdk",
- "toml 0.7.1",
-]
 
 [[package]]
 name = "version_check"
