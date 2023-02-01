@@ -37,7 +37,7 @@ enum SubCommand {
         #[clap(short, long)]
         base_image: Option<String>,
         /// If the program requires cargo build-bpf (instead of cargo build-sbf), as for anchor program, set this flag
-        #[clap(short, long, default_value = "false")]
+        #[clap(long, default_value = "false")]
         bpf_flag: bool,
     },
     /// Verifies a cached build from a docker image
