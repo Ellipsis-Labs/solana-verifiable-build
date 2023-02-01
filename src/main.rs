@@ -88,7 +88,7 @@ enum SubCommand {
         commit_hash: Option<String>,
         /// Connection URL to Solana network to verify the on-chain program. Defaults to user global config
         #[clap(short, long)]
-        connection_url: Option<String>,
+        url_solana: Option<String>,
         /// The Program ID of the program to verify
         #[clap(short, long)]
         program_id: Pubkey,
@@ -144,7 +144,7 @@ fn main() -> anyhow::Result<()> {
             repo_url,
             commit_hash,
             program_id,
-            connection_url,
+            url_solana,
             base_image,
             name_of_program,
             bpf_flag,
@@ -178,7 +178,7 @@ fn main() -> anyhow::Result<()> {
                 base_image,
                 bpf_flag,
                 name_of_program,
-                connection_url,
+                url_solana,
                 program_id,
             );
 
