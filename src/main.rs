@@ -3,12 +3,22 @@ use std::{io::Read, path::PathBuf};
 use anyhow::anyhow;
 use clap::{Parser, Subcommand};
 use cmd_lib::{init_builtin_logger, run_cmd, run_fun};
+use solana_cli_config::{Config, CONFIG_FILE};
 use solana_client::rpc_client::RpcClient;
 use solana_sdk::{
     bpf_loader_upgradeable::{self, UpgradeableLoaderState},
     pubkey::Pubkey,
 };
 use uuid::Uuid;
+
+pub fn get_network(network_str: &str) -> &str {
+    match network_str {
+        "devnet" | "dev" | "d" => "https://api.devnet.solana.com",
+        "mainnet" | "main" | "m" | "mainnet-beta" => "https://api.mainnet-beta.solana.com",
+        "localnet" | "localhost" | "l" | "local" => "http://localhost:8899",
+        _ => network_str,
+    }
+}
 
 #[derive(Parser, Debug)]
 #[clap(author = "Ellipsis", version, about)]
@@ -38,9 +48,9 @@ enum SubCommand {
         /// Image that contains the source code to be verified
         #[clap(short, long)]
         image: String,
-        /// Connection URL to Solana network to verify the on-chain program. Default is mainnet-beta.
-        #[clap(short, long, default_value = "https://api.mainnet-beta.solana.com")]
-        url: String,
+        /// Connection URL to Solana network to verify the on-chain program. Defaults to user global config
+        #[clap(short, long)]
+        url: Option<String>,
         /// The Program ID of the program to verify
         #[clap(short, long)]
         program_id: Pubkey,
@@ -52,17 +62,17 @@ enum SubCommand {
     },
     /// Get the hash of a program binary from the deployed on-chain program
     GetProgramHash {
-        /// Connection URL to Solana network to verify the on-chain program. Default is mainnet-beta.
-        #[clap(short, long, default_value = "https://api.mainnet-beta.solana.com")]
-        url: String,
+        /// Connection URL to Solana network to verify the on-chain program. Defaults to user global config
+        #[clap(short, long)]
+        url: Option<String>,
         /// The Program ID of the program to verify
         program_id: Pubkey,
     },
     /// Get the hash of a program binary from the deployed buffer address
     GetBufferHash {
-        /// Connection URL to Solana network to verify the on-chain program. Default is mainnet-beta.
-        #[clap(short, long, default_value = "https://api.mainnet-beta.solana.com")]
-        url: String,
+        /// Connection URL to Solana network to verify the on-chain program. Defaults to user global config
+        #[clap(short, long)]
+        url: Option<String>,
         /// Address of the buffer account containing the deployed program data
         buffer_address: Pubkey,
     },
@@ -76,9 +86,9 @@ enum SubCommand {
         /// Optional commit hash to checkout
         #[clap(long)]
         commit_hash: Option<String>,
-        /// Connection URL to Solana network to verify the on-chain program
-        #[clap(short, long, default_value = "https://api.mainnet-beta.solana.com")]
-        connection_url: String,
+        /// Connection URL to Solana network to verify the on-chain program. Defaults to user global config
+        #[clap(short, long)]
+        connection_url: Option<String>,
         /// The Program ID of the program to verify
         #[clap(short, long)]
         program_id: Pubkey,
@@ -194,6 +204,18 @@ fn main() -> anyhow::Result<()> {
     }
 }
 
+pub fn get_client(url: Option<String>) -> RpcClient {
+    let config = match CONFIG_FILE.as_ref() {
+        Some(config_file) => Config::load(config_file).unwrap_or_else(|_| {
+            println!("Failed to load config file: {}", config_file);
+            Config::default()
+        }),
+        None => Config::default(),
+    };
+    let url = &get_network(&url.unwrap_or(config.json_rpc_url)).to_string();
+    RpcClient::new(url)
+}
+
 fn get_binary_hash(program_data: Vec<u8>) -> String {
     let buffer = program_data
         .into_iter()
@@ -212,6 +234,24 @@ pub fn get_file_hash(filepath: &str) -> Result<String, std::io::Error> {
     let mut buffer = vec![0; metadata.len() as usize];
     f.read_exact(&mut buffer)?;
     Ok(get_binary_hash(buffer))
+}
+
+pub fn get_buffer_hash(url: Option<String>, buffer_address: Pubkey) -> anyhow::Result<String> {
+    let client = get_client(url);
+    let offset = UpgradeableLoaderState::size_of_buffer_metadata();
+    let account_data = client.get_account_data(&buffer_address)?[offset..].to_vec();
+    let program_hash = get_binary_hash(account_data);
+    Ok(program_hash)
+}
+
+pub fn get_program_hash(url: Option<String>, program_id: Pubkey) -> anyhow::Result<String> {
+    let client = get_client(url);
+    let program_buffer =
+        Pubkey::find_program_address(&[program_id.as_ref()], &bpf_loader_upgradeable::id()).0;
+    let offset = UpgradeableLoaderState::size_of_programdata_metadata();
+    let account_data = client.get_account_data(&program_buffer)?[offset..].to_vec();
+    let program_hash = get_binary_hash(account_data);
+    Ok(program_hash)
 }
 
 pub fn build(
@@ -251,28 +291,10 @@ pub fn build(
     Ok(())
 }
 
-pub fn get_buffer_hash(url: String, buffer_address: Pubkey) -> anyhow::Result<String> {
-    let client = RpcClient::new(url);
-    let offset = UpgradeableLoaderState::size_of_buffer_metadata();
-    let account_data = client.get_account_data(&buffer_address)?[offset..].to_vec();
-    let program_hash = get_binary_hash(account_data);
-    Ok(program_hash)
-}
-
-pub fn get_program_hash(url: String, program_id: Pubkey) -> anyhow::Result<String> {
-    let client = RpcClient::new(url);
-    let program_buffer =
-        Pubkey::find_program_address(&[program_id.as_ref()], &bpf_loader_upgradeable::id()).0;
-    let offset = UpgradeableLoaderState::size_of_programdata_metadata();
-    let account_data = client.get_account_data(&program_buffer)?[offset..].to_vec();
-    let program_hash = get_binary_hash(account_data);
-    Ok(program_hash)
-}
-
 pub fn verify_from_image(
     executable_path: String,
     image: String,
-    network: String,
+    network: Option<String>,
     program_id: Pubkey,
 ) -> anyhow::Result<()> {
     println!(
@@ -287,7 +309,7 @@ pub fn verify_from_image(
     run_cmd!(docker cp $container_id:/build/$executable_path /tmp/program.so)?;
 
     let executable_hash = get_file_hash("/tmp/program.so")?;
-    let client = RpcClient::new(network);
+    let client = get_client(network);
     let program_buffer =
         Pubkey::find_program_address(&[program_id.as_ref()], &bpf_loader_upgradeable::id()).0;
     let offset = UpgradeableLoaderState::size_of_programdata_metadata();
@@ -314,7 +336,7 @@ pub fn verify_from_repo(
     base_image: Option<String>,
     bpf_flag: bool,
     name_of_program: String,
-    connection_url: String,
+    connection_url: Option<String>,
     program_id: Pubkey,
 ) -> anyhow::Result<(String, String)> {
     // Build the code using the docker container
@@ -335,8 +357,8 @@ pub fn verify_from_repo(
 
     // Get the hash of the deployed program
     println!(
-        "Fetching on-chain program data for program ID: {} on connection url: {}",
-        program_id, connection_url
+        "Fetching on-chain program data for program ID: {}",
+        program_id,
     );
     let program_hash = get_program_hash(connection_url, program_id)?;
 

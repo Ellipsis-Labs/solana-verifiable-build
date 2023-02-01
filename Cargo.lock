@@ -3384,6 +3384,7 @@ dependencies = [
  "cmd_lib",
  "hex 0.3.2",
  "sha256",
+ "solana-cli-config",
  "solana-client",
  "solana-sdk",
  "uuid",
