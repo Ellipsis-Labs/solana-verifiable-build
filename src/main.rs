@@ -1,5 +1,6 @@
 use std::{io::Read, path::PathBuf};
 
+use anyhow::anyhow;
 use clap::{Parser, Subcommand};
 use cmd_lib::{init_builtin_logger, run_cmd, run_fun};
 use solana_client::rpc_client::RpcClient;
@@ -7,6 +8,7 @@ use solana_sdk::{
     bpf_loader_upgradeable::{self, UpgradeableLoaderState},
     pubkey::Pubkey,
 };
+use uuid::Uuid;
 
 #[derive(Parser, Debug)]
 #[clap(author = "Ellipsis", version, about)]
@@ -23,6 +25,9 @@ enum SubCommand {
         build_dir: Option<String>,
         #[clap(short, long)]
         base_image: Option<String>,
+        /// If the program requires cargo build-bpf (instead of cargo build-sbf), as for anchor program, set this flag
+        #[clap(short, long, default_value = "false")]
+        bpf_flag: bool,
     },
     /// Verifies a cached build from a docker image
     VerifyFromImage {
@@ -64,6 +69,12 @@ enum SubCommand {
         program_id: Pubkey,
         #[clap(short, long)]
         base_image: Option<String>,
+        /// If the repo_url points to a repo that contains multiple programs, specify the name of the program to build and verify
+        #[clap(short, long, default_value = "*")]
+        name_of_program: String,
+        /// If the program requires cargo build-bpf (instead of cargo build-sbf), as for anchor program, set this flag
+        #[clap(long, default_value = "false")]
+        bpf_flag: bool,
     },
 }
 
@@ -73,8 +84,9 @@ fn main() -> anyhow::Result<()> {
         SubCommand::Build {
             build_dir: filepath,
             base_image,
+            bpf_flag,
         } => {
-            build(filepath, base_image)?;
+            build(filepath, base_image, bpf_flag)?;
             Ok(())
         }
         SubCommand::VerifyFromImage {
@@ -92,21 +104,12 @@ fn main() -> anyhow::Result<()> {
             url,
             buffer_address,
         } => {
-            let client = RpcClient::new(url);
-            let offset = UpgradeableLoaderState::size_of_buffer_metadata();
-            let account_data = client.get_account_data(&buffer_address)?[offset..].to_vec();
-            let program_hash = get_binary_hash(account_data);
-            println!("{}", program_hash);
+            let buffer_hash = get_buffer_hash(url, buffer_address)?;
+            println!("{}", buffer_hash);
             Ok(())
         }
         SubCommand::GetProgramHash { url, program_id } => {
-            let client = RpcClient::new(url);
-            let program_buffer =
-                Pubkey::find_program_address(&[program_id.as_ref()], &bpf_loader_upgradeable::id())
-                    .0;
-            let offset = UpgradeableLoaderState::size_of_programdata_metadata();
-            let account_data = client.get_account_data(&program_buffer)?[offset..].to_vec();
-            let program_hash = get_binary_hash(account_data);
+            let program_hash = get_program_hash(url, program_id)?;
             println!("{}", program_hash);
             Ok(())
         }
@@ -116,40 +119,42 @@ fn main() -> anyhow::Result<()> {
             program_id,
             connection_url,
             base_image,
+            name_of_program,
+            bpf_flag,
         } => {
             // Get source code from repo_url
             let base_name = run_fun!(basename $repo_url)?;
-            run_fun!(git clone $repo_url /tmp/solana-verify/$base_name)?;
-            run_fun!(cd /tmp/solana-verify/$base_name)?;
+            let uuid = Uuid::new_v4().to_string();
+
+            run_fun!(git clone $repo_url /tmp/solana-verify/$uuid/$base_name)?;
 
             // Get the absolute build path to the solana program directory to build inside docker
-            let build_path = PathBuf::from(format!("/tmp/solana-verify/{}", base_name))
+            let build_path = PathBuf::from(format!("/tmp/solana-verify/{}/{}", uuid, base_name))
                 .join(solana_program_path.clone());
             println!("Build path: {:?}", build_path);
 
             // Build the code using the docker container
-            build(Some(build_path.to_str().unwrap().to_string()), base_image)?;
+            build(
+                Some(build_path.to_str().unwrap().to_string()),
+                base_image,
+                bpf_flag,
+            )?;
+
+            let executable_filename = format!("{}.so", name_of_program);
 
             // Get the hash of the build
-            let executable_path =
-                run_fun!(find $solana_program_path/target/deploy -type f -name "*.so")?;
+            let executable_path = run_fun!(find /tmp/solana-verify/$uuid/$base_name/target/deploy -type f -name "$executable_filename")?;
             let build_hash = get_file_hash(&executable_path)?;
 
             // Get hash of on-chain program
-            let client = RpcClient::new(connection_url);
-            let program_buffer =
-                Pubkey::find_program_address(&[program_id.as_ref()], &bpf_loader_upgradeable::id())
-                    .0;
-            let offset = UpgradeableLoaderState::size_of_programdata_metadata();
-            let account_data = client.get_account_data(&program_buffer)?[offset..].to_vec();
-            let program_hash = get_binary_hash(account_data);
+            let program_hash = get_program_hash(connection_url, program_id)?;
 
             // Compare hashes
             println!("Executable Program Hash from repo: {}", build_hash);
             println!("On-chain Program Hash: {}", program_hash);
 
             // Remove temp repo
-            run_fun!(rm -rf /tmp/solana-verify/$base_name)?;
+            run_fun!(rm -rf build_path)?;
 
             if program_hash != build_hash {
                 println!("Executable hash mismatch");
@@ -182,7 +187,11 @@ pub fn get_file_hash(filepath: &str) -> Result<String, std::io::Error> {
     Ok(get_binary_hash(buffer))
 }
 
-pub fn build(filepath: Option<String>, base_image: Option<String>) -> anyhow::Result<()> {
+pub fn build(
+    filepath: Option<String>,
+    base_image: Option<String>,
+    bpf_flag: bool,
+) -> anyhow::Result<()> {
     let path = filepath.unwrap_or(
         std::env::current_dir()?
             .as_os_str()
@@ -192,16 +201,45 @@ pub fn build(filepath: Option<String>, base_image: Option<String>) -> anyhow::Re
     );
     println!("Mounting path: {}", path);
     let image = base_image.unwrap_or_else(|| "ellipsislabs/solana:latest".to_string());
+    let cargo_command = if bpf_flag {
+        "cargo build-bpf"
+    } else {
+        "cargo build-sbf"
+    };
+
+    println!(
+        "Cargo build command: {} -- --locked --frozen",
+        cargo_command
+    );
+
     init_builtin_logger();
     let container_id = run_fun!(
         docker run
         --rm
         -v $path:/build
         -dit $image
-        sh -c "cargo build-sbf -- --locked --frozen"
+        sh -c "$cargo_command -- --locked --frozen"
     )?;
     run_cmd!(docker logs --follow $container_id)?;
     Ok(())
+}
+
+pub fn get_buffer_hash(url: String, buffer_address: Pubkey) -> anyhow::Result<String> {
+    let client = RpcClient::new(url);
+    let offset = UpgradeableLoaderState::size_of_buffer_metadata();
+    let account_data = client.get_account_data(&buffer_address)?[offset..].to_vec();
+    let program_hash = get_binary_hash(account_data);
+    Ok(program_hash)
+}
+
+pub fn get_program_hash(url: String, program_id: Pubkey) -> anyhow::Result<String> {
+    let client = RpcClient::new(url);
+    let program_buffer =
+        Pubkey::find_program_address(&[program_id.as_ref()], &bpf_loader_upgradeable::id()).0;
+    let offset = UpgradeableLoaderState::size_of_programdata_metadata();
+    let account_data = client.get_account_data(&program_buffer)?[offset..].to_vec();
+    let program_hash = get_binary_hash(account_data);
+    Ok(program_hash)
 }
 
 pub fn verify_from_image(
