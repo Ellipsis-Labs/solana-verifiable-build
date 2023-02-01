@@ -23,6 +23,7 @@ enum SubCommand {
     Build {
         /// Path to mount to the docker image
         build_dir: Option<String>,
+        /// Optionally specify a custom base docker image to use for building the program repository
         #[clap(short, long)]
         base_image: Option<String>,
         /// If the program requires cargo build-bpf (instead of cargo build-sbf), as for anchor program, set this flag
@@ -31,42 +32,57 @@ enum SubCommand {
     },
     /// Verifies a cached build from a docker image
     VerifyFromImage {
+        /// Path to the executable solana program within the source code repository in the docker image
         #[clap(short, long)]
         executable_path_in_image: String,
+        /// Image that contains the source code to be verified
         #[clap(short, long)]
         image: String,
+        /// Connection URL to Solana network to verify the on-chain program. Default is mainnet-beta.
         #[clap(short, long, default_value = "https://api.mainnet-beta.solana.com")]
         url: String,
+        /// The Program ID of the program to verify
         #[clap(short, long)]
         program_id: Pubkey,
     },
     /// Get the hash of a program binary from an executable file
     GetExecutableHash {
-        /// Path to the executable
+        /// Path to the executable solana program
         filepath: String,
     },
     /// Get the hash of a program binary from the deployed on-chain program
     GetProgramHash {
+        /// Connection URL to Solana network to verify the on-chain program. Default is mainnet-beta.
         #[clap(short, long, default_value = "https://api.mainnet-beta.solana.com")]
         url: String,
-        /// Program ID
+        /// The Program ID of the program to verify
         program_id: Pubkey,
     },
     /// Get the hash of a program binary from the deployed buffer address
     GetBufferHash {
+        /// Connection URL to Solana network to verify the on-chain program. Default is mainnet-beta.
         #[clap(short, long, default_value = "https://api.mainnet-beta.solana.com")]
         url: String,
         /// Address of the buffer account containing the deployed program data
         buffer_address: Pubkey,
     },
+    /// Builds and verifies a program from a given repository URL and a program ID
     VerifyFromRepo {
-        #[clap(short, long)]
+        /// Path to the executable solana program within the source code repository if the program is not part of the top-level Cargo.toml
+        #[clap(short, long, default_value = ".")]
         solana_program_path: String,
+        /// The HTTPS URL of the repo to clone
         repo_url: String,
+        /// Optional commit hash to checkout
+        #[clap(long)]
+        commit_hash: Option<String>,
+        /// Connection URL to Solana network to verify the on-chain program
         #[clap(short, long, default_value = "https://api.mainnet-beta.solana.com")]
         connection_url: String,
+        /// The Program ID of the program to verify
         #[clap(short, long)]
         program_id: Pubkey,
+        /// Optionally specify a custom base docker image to use for building the program repository
         #[clap(short, long)]
         base_image: Option<String>,
         /// If the repo_url points to a repo that contains multiple programs, specify the name of the program to build and verify
@@ -116,6 +132,7 @@ fn main() -> anyhow::Result<()> {
         SubCommand::VerifyFromRepo {
             solana_program_path,
             repo_url,
+            commit_hash,
             program_id,
             connection_url,
             base_image,
@@ -126,43 +143,53 @@ fn main() -> anyhow::Result<()> {
             let base_name = run_fun!(basename $repo_url)?;
             let uuid = Uuid::new_v4().to_string();
 
-            run_fun!(git clone $repo_url /tmp/solana-verify/$uuid/$base_name)?;
+            // Create a temporary directory to clone the repo into
+            let tmp_file_path = format!("/tmp/solana-verify/{}/{}", uuid, base_name);
+            run_fun!(git clone $repo_url $tmp_file_path)?;
+
+            // Checkout a specific commit hash, if provided
+            if let Some(commit_hash) = commit_hash {
+                println!("tmp_file_path: {:?}", tmp_file_path);
+                let result = run_fun!(cd $tmp_file_path; git checkout $commit_hash);
+                if result.is_ok() {
+                    println!("Checked out commit hash: {}", commit_hash);
+                } else {
+                    run_fun!(rm -rf /tmp/solana-verify/$uuid)?;
+                    Err(anyhow!("Failed to checkout commit hash: {:?}", result))?;
+                }
+            }
 
             // Get the absolute build path to the solana program directory to build inside docker
-            let build_path = PathBuf::from(format!("/tmp/solana-verify/{}/{}", uuid, base_name))
-                .join(solana_program_path.clone());
+            let build_path = PathBuf::from(tmp_file_path.clone()).join(solana_program_path);
             println!("Build path: {:?}", build_path);
 
-            // Build the code using the docker container
-            build(
-                Some(build_path.to_str().unwrap().to_string()),
+            let result = verify_from_repo(
+                build_path.to_str().unwrap().to_string(),
                 base_image,
                 bpf_flag,
-            )?;
+                name_of_program,
+                connection_url,
+                program_id,
+            );
 
-            let executable_filename = format!("{}.so", name_of_program);
+            // Cleanup no matter the result
+            run_fun!(rm -rf /tmp/solana-verify/$uuid)?;
 
-            // Get the hash of the build
-            let executable_path = run_fun!(find /tmp/solana-verify/$uuid/$base_name/target/deploy -type f -name "$executable_filename")?;
-            let build_hash = get_file_hash(&executable_path)?;
+            // Compare hashes or return error
+            if let Ok((build_hash, program_hash)) = result {
+                println!("Executable Program Hash from repo: {}", build_hash);
+                println!("On-chain Program Hash: {}", program_hash);
 
-            // Get hash of on-chain program
-            let program_hash = get_program_hash(connection_url, program_id)?;
+                if build_hash == program_hash {
+                    println!("Program hash matches");
+                } else {
+                    println!("Program hash does not match");
+                }
 
-            // Compare hashes
-            println!("Executable Program Hash from repo: {}", build_hash);
-            println!("On-chain Program Hash: {}", program_hash);
-
-            // Remove temp repo
-            run_fun!(rm -rf build_path)?;
-
-            if program_hash != build_hash {
-                println!("Executable hash mismatch");
-                return Err(anyhow::Error::msg("Executable hash mismatch"));
+                Ok(())
             } else {
-                println!("Executable matches on-chain program data ✅");
+                Err(anyhow!("Error verifying program. {:?}", result))
             }
-            Ok(())
         }
     }
 }
@@ -280,4 +307,38 @@ pub fn verify_from_image(
         println!("Executable matches on-chain program data ✅");
     }
     Ok(())
+}
+
+pub fn verify_from_repo(
+    base_repo_path: String,
+    base_image: Option<String>,
+    bpf_flag: bool,
+    name_of_program: String,
+    connection_url: String,
+    program_id: Pubkey,
+) -> anyhow::Result<(String, String)> {
+    // Build the code using the docker container
+    build(Some(base_repo_path.clone()), base_image, bpf_flag)?;
+
+    let executable_filename = format!("{}.so", name_of_program);
+
+    // Get the hash of the build
+    println!(
+        "Looking for executable name {} at path: {}/target/deploy",
+        executable_filename, base_repo_path
+    );
+    let executable_path =
+        run_fun!(find $base_repo_path/target/deploy -name "$executable_filename")?;
+    println!("Executable file found at path: {:?}", executable_path);
+    let build_hash = get_file_hash(&executable_path)?;
+    println!("Build hash: {}", build_hash);
+
+    // Get the hash of the deployed program
+    println!(
+        "Fetching on-chain program data for program ID: {} on connection url: {}",
+        program_id, connection_url
+    );
+    let program_hash = get_program_hash(connection_url, program_id)?;
+
+    Ok((build_hash, program_hash))
 }
