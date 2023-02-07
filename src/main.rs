@@ -39,6 +39,9 @@ enum SubCommand {
         /// If the program requires cargo build-bpf (instead of cargo build-sbf), as for anchor program, set this flag
         #[clap(long, default_value = "false")]
         bpf_flag: bool,
+        /// If the program requires cargo build-bpf (instead of cargo build-sbf), as for anchor program, set this flag
+        #[clap(long)]
+        program_name: Option<String>,
     },
     /// Verifies a cached build from a docker image
     VerifyFromImage {
@@ -111,8 +114,9 @@ fn main() -> anyhow::Result<()> {
             build_dir: filepath,
             base_image,
             bpf_flag,
+            program_name,
         } => {
-            build(filepath, base_image, bpf_flag)?;
+            build(filepath, base_image, bpf_flag, program_name)?;
             Ok(())
         }
         SubCommand::VerifyFromImage {
@@ -258,6 +262,7 @@ pub fn build(
     filepath: Option<String>,
     base_image: Option<String>,
     bpf_flag: bool,
+    program_name: Option<String>,
 ) -> anyhow::Result<()> {
     let path = filepath.unwrap_or(
         std::env::current_dir()?
@@ -288,6 +293,11 @@ pub fn build(
         sh -c "$cargo_command -- --locked --frozen"
     )?;
     run_cmd!(docker logs --follow $container_id)?;
+    if let Some(program_name) = program_name {
+        let executable_path = run_fun!(find $path/target/deploy -name "$program_name.so")?;
+        let executable_hash = get_file_hash(&executable_path)?;
+        println!("Executable hash: {}", executable_hash);
+    }
     Ok(())
 }
 
@@ -340,7 +350,7 @@ pub fn verify_from_repo(
     program_id: Pubkey,
 ) -> anyhow::Result<(String, String)> {
     // Build the code using the docker container
-    build(Some(base_repo_path.clone()), base_image, bpf_flag)?;
+    build(Some(base_repo_path.clone()), base_image, bpf_flag, None)?;
 
     let executable_filename = format!("{}.so", name_of_program);
 
