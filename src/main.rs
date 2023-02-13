@@ -32,7 +32,10 @@ enum SubCommand {
     /// Deterministically build the program in an Docker container
     Build {
         /// Path to mount to the docker image
-        build_dir: Option<String>,
+        mount_dir: Option<String>,
+        /// Path to build the docker image
+        #[clap(short, long)]
+        program_build_dir: Option<String>,
         /// Optionally specify a custom base docker image to use for building the program repository
         #[clap(short, long)]
         base_image: Option<String>,
@@ -108,11 +111,12 @@ fn main() -> anyhow::Result<()> {
     let args = Arguments::parse();
     match args.subcommand {
         SubCommand::Build {
-            build_dir: filepath,
+            mount_dir: filepath,
+            program_build_dir,
             base_image,
             bpf_flag,
         } => {
-            build(filepath, base_image, bpf_flag)?;
+            build(filepath, program_build_dir, base_image, bpf_flag)?;
             Ok(())
         }
         SubCommand::VerifyFromImage {
@@ -256,6 +260,7 @@ pub fn get_program_hash(url: Option<String>, program_id: Pubkey) -> anyhow::Resu
 
 pub fn build(
     filepath: Option<String>,
+    buildpath: Option<String>,
     base_image: Option<String>,
     bpf_flag: bool,
 ) -> anyhow::Result<()> {
@@ -274,6 +279,12 @@ pub fn build(
         "cargo build-sbf"
     };
 
+    let cd_dir = if buildpath.is_none() {
+        format!("cd .")
+    } else {
+        format!("cd {}", buildpath.unwrap())
+    };
+
     println!(
         "Cargo build command: {} -- --locked --frozen",
         cargo_command
@@ -285,7 +296,7 @@ pub fn build(
         --rm
         -v $path:/build
         -dit $image
-        sh -c "$cargo_command -- --locked --frozen"
+        sh -c "$cd_dir && $cargo_command -- --locked --frozen"
     )?;
     run_cmd!(docker logs --follow $container_id)?;
     Ok(())
@@ -340,7 +351,7 @@ pub fn verify_from_repo(
     program_id: Pubkey,
 ) -> anyhow::Result<(String, String)> {
     // Build the code using the docker container
-    build(Some(base_repo_path.clone()), base_image, bpf_flag)?;
+    build(Some(base_repo_path.clone()), None, base_image, bpf_flag)?;
 
     let executable_filename = format!("{}.so", name_of_program);
 
