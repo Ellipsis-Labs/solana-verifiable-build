@@ -278,7 +278,7 @@ pub fn build(
     } else {
         "cargo build-sbf"
     };
-
+    // change directory to program/build dir
     let cd_dir = if buildpath.is_none() {
         format!("cd .")
     } else {
