@@ -111,7 +111,9 @@ fn main() -> anyhow::Result<()> {
     let args = Arguments::parse();
     match args.subcommand {
         SubCommand::Build {
+            // mount directory
             mount_dir: filepath,
+            // program build directory
             program_build_dir,
             base_image,
             bpf_flag,
