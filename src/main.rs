@@ -42,6 +42,9 @@ enum SubCommand {
         /// If the program requires cargo build-bpf (instead of cargo build-sbf), as for anchor program, set this flag
         #[clap(long, default_value = "false")]
         bpf_flag: bool,
+        /// Docker workdir
+        #[clap(long, default_value = "build")]
+        workdir: String,
     },
     /// Verifies a cached build from a docker image
     VerifyFromImage {
@@ -104,6 +107,9 @@ enum SubCommand {
         /// If the program requires cargo build-bpf (instead of cargo build-sbf), as for anchor program, set this flag
         #[clap(long, default_value = "false")]
         bpf_flag: bool,
+        /// Docker workdir
+        #[clap(long, default_value = "build")]
+        workdir: String,
     },
 }
 
@@ -117,8 +123,9 @@ fn main() -> anyhow::Result<()> {
             program_build_dir,
             base_image,
             bpf_flag,
+            workdir,
         } => {
-            build(filepath, program_build_dir, base_image, bpf_flag)?;
+            build(filepath, program_build_dir, base_image, bpf_flag, workdir)?;
             Ok(())
         }
         SubCommand::VerifyFromImage {
@@ -154,6 +161,7 @@ fn main() -> anyhow::Result<()> {
             base_image,
             name_of_program,
             bpf_flag,
+            workdir,
         } => {
             // Get source code from repo_url
             let base_name = run_fun!(basename $repo_url)?;
@@ -186,6 +194,7 @@ fn main() -> anyhow::Result<()> {
                 name_of_program,
                 url_solana,
                 program_id,
+                workdir,
             );
 
             // Cleanup no matter the result
@@ -265,6 +274,7 @@ pub fn build(
     buildpath: Option<String>,
     base_image: Option<String>,
     bpf_flag: bool,
+    workdir: String,
 ) -> anyhow::Result<()> {
     let path = filepath.unwrap_or(
         std::env::current_dir()?
@@ -296,7 +306,7 @@ pub fn build(
     let container_id = run_fun!(
         docker run
         --rm
-        -v $path:/build
+        -v $path:/$workdir
         -dit $image
         sh -c "$cd_dir && $cargo_command -- --locked --frozen"
     )?;
@@ -351,9 +361,16 @@ pub fn verify_from_repo(
     name_of_program: String,
     connection_url: Option<String>,
     program_id: Pubkey,
+    workdir: String,
 ) -> anyhow::Result<(String, String)> {
     // Build the code using the docker container
-    build(Some(base_repo_path.clone()), None, base_image, bpf_flag)?;
+    build(
+        Some(base_repo_path.clone()),
+        None,
+        base_image,
+        bpf_flag,
+        workdir,
+    )?;
 
     let executable_filename = format!("{}.so", name_of_program);
 
