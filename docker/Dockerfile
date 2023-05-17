@@ -1,5 +1,6 @@
 #syntax=docker/dockerfile:1.2
-FROM rust:1.68-alpine as build-env
+ARG arch
+FROM --platform=linux/${arch} rust:1.68-alpine as build-env
 
 WORKDIR /build
 RUN apk add --no-cache \
@@ -55,7 +56,8 @@ RUN cp -r /tmp/platform-tools/* solana-platform-tools-src/ && \
     esac && \
     rm -rf solana-platform-tools-src /tmp/solana-platform-tools /tmp/platform-tools *.tar.bz2 
 
-FROM rust:1.68-alpine as toolchain
+ARG arch
+FROM --platform=linux/${arch} rust:1.68-alpine as toolchain
 
 WORKDIR /build
 

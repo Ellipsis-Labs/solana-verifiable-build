@@ -52,6 +52,10 @@ if [[ "${HOST_TRIPLE}" == "aarch64-unknown-linux-musl" ]]; then
     # Disable crt-static for aarch64-unknown-linux-musl
     echo -e "[target.aarch64-unknown-linux-musl]\ncrt-static = false" >> config.toml
 fi
+if [[ "${HOST_TRIPLE}" == "x86_64-unknown-linux-musl" ]]; then
+    # Disable crt-static for x86_64-unknown-linux-musl
+    echo -e "[target.x86_64-unknown-linux-musl]\ncrt-static = false" >> config.toml
+fi
 ./x.py build --stage 1 --target ${HOST_TRIPLE},sbf-solana-solana
 popd
 

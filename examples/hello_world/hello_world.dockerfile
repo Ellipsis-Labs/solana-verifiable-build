@@ -1,5 +1,6 @@
 #syntax=docker/dockerfile:1.2
-FROM rust:1.68-alpine as download-env
+ARG arch
+FROM --platform=linux/${arch} rust:1.68-alpine as download-env
 WORKDIR /build
 
 RUN apk add --no-cache \
@@ -22,7 +23,8 @@ replace-with = \"vendored-sources\"\n\
 directory = \"vendor\"\
 " > .cargo/config
 
-FROM ellipsislabs/solana-jchen:latest
+ARG arch
+FROM --platform=linux/${arch} ellipsislabs/solana-jchen:latest
 
 COPY --from=download-env --chown=default:default /build/solana-verifiable-build/examples/hello_world solana-verifiable-build/examples/hello_world
 # Default $CARGO_HOME location
