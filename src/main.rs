@@ -1,8 +1,8 @@
-use std::{io::Read, path::PathBuf};
+use std::{io::Read, path::PathBuf, process::Stdio};
 
 use anyhow::anyhow;
 use clap::{Parser, Subcommand};
-use cmd_lib::{init_builtin_logger, run_cmd, run_fun};
+use cmd_lib::run_fun;
 use solana_cli_config::{Config, CONFIG_FILE};
 use solana_client::rpc_client::RpcClient;
 use solana_sdk::{
@@ -25,6 +25,9 @@ pub fn get_network(network_str: &str) -> &str {
 struct Arguments {
     #[clap(subcommand)]
     subcommand: SubCommand,
+    /// Optionally include your RPC endpoint. Use "local", "dev", "main" for default endpoints. Defaults to your Solana CLI config file.
+    #[clap(global = true, short, long)]
+    url: Option<String>,
 }
 
 #[derive(Subcommand, Debug)]
@@ -51,9 +54,6 @@ enum SubCommand {
         /// Image that contains the source code to be verified
         #[clap(short, long)]
         image: String,
-        /// Connection URL to Solana network to verify the on-chain program. Defaults to user global config
-        #[clap(short, long)]
-        url: Option<String>,
         /// The Program ID of the program to verify
         #[clap(short, long)]
         program_id: Pubkey,
@@ -65,17 +65,11 @@ enum SubCommand {
     },
     /// Get the hash of a program binary from the deployed on-chain program
     GetProgramHash {
-        /// Connection URL to Solana network to verify the on-chain program. Defaults to user global config
-        #[clap(short, long)]
-        url: Option<String>,
         /// The Program ID of the program to verify
         program_id: Pubkey,
     },
     /// Get the hash of a program binary from the deployed buffer address
     GetBufferHash {
-        /// Connection URL to Solana network to verify the on-chain program. Defaults to user global config
-        #[clap(short, long)]
-        url: Option<String>,
         /// Address of the buffer account containing the deployed program data
         buffer_address: Pubkey,
     },
@@ -89,9 +83,6 @@ enum SubCommand {
         /// Optional commit hash to checkout
         #[clap(long)]
         commit_hash: Option<String>,
-        /// Connection URL to Solana network to verify the on-chain program. Defaults to user global config
-        #[clap(short, long)]
-        url_solana: Option<String>,
         /// The Program ID of the program to verify
         #[clap(short, long)]
         program_id: Pubkey,
@@ -124,24 +115,20 @@ fn main() -> anyhow::Result<()> {
         SubCommand::VerifyFromImage {
             executable_path_in_image: executable_path,
             image,
-            url: network,
             program_id,
-        } => verify_from_image(executable_path, image, network, program_id),
+        } => verify_from_image(executable_path, image, args.url, program_id),
         SubCommand::GetExecutableHash { filepath } => {
             let program_hash = get_file_hash(&filepath)?;
             println!("{}", program_hash);
             Ok(())
         }
-        SubCommand::GetBufferHash {
-            url,
-            buffer_address,
-        } => {
-            let buffer_hash = get_buffer_hash(url, buffer_address)?;
+        SubCommand::GetBufferHash { buffer_address } => {
+            let buffer_hash = get_buffer_hash(args.url, buffer_address)?;
             println!("{}", buffer_hash);
             Ok(())
         }
-        SubCommand::GetProgramHash { url, program_id } => {
-            let program_hash = get_program_hash(url, program_id)?;
+        SubCommand::GetProgramHash { program_id } => {
+            let program_hash = get_program_hash(args.url, program_id)?;
             println!("{}", program_hash);
             Ok(())
         }
@@ -150,27 +137,44 @@ fn main() -> anyhow::Result<()> {
             repo_url,
             commit_hash,
             program_id,
-            url_solana,
             base_image,
             name_of_program,
             bpf_flag,
         } => {
             // Get source code from repo_url
-            let base_name = run_fun!(basename $repo_url)?;
+            let base_name = std::process::Command::new("basename")
+                .arg(&repo_url)
+                .output()
+                .map_err(|e| anyhow!("Failed to get basename of repo_url: {:?}", e))
+                .and_then(|output| parse_output(output.stdout))?;
+
             let uuid = Uuid::new_v4().to_string();
 
             // Create a temporary directory to clone the repo into
-            let tmp_file_path = format!("/tmp/solana-verify/{}/{}", uuid, base_name);
-            run_fun!(git clone $repo_url $tmp_file_path)?;
+            let tmp_dir = format!("/tmp/solana-verify/{}", uuid);
+            let tmp_file_path = format!("{}/{}", tmp_dir, base_name);
+
+            std::process::Command::new("git")
+                .args(["clone", &repo_url, &tmp_file_path])
+                .output()?;
 
             // Checkout a specific commit hash, if provided
             if let Some(commit_hash) = commit_hash {
                 println!("tmp_file_path: {:?}", tmp_file_path);
-                let result = run_fun!(cd $tmp_file_path; git checkout $commit_hash);
+                let result = std::process::Command::new("cd")
+                    .arg(&tmp_file_path)
+                    .output()
+                    .and_then(|_| {
+                        std::process::Command::new("git")
+                            .args(["checkout", &commit_hash])
+                            .output()
+                    });
                 if result.is_ok() {
                     println!("Checked out commit hash: {}", commit_hash);
                 } else {
-                    run_fun!(rm -rf /tmp/solana-verify/$uuid)?;
+                    std::process::Command::new("rm")
+                        .args(["-rf", format!("/tmp/solana-verify/{}", uuid).as_str()])
+                        .output()?;
                     Err(anyhow!("Failed to checkout commit hash: {:?}", result))?;
                 }
             }
@@ -184,12 +188,14 @@ fn main() -> anyhow::Result<()> {
                 base_image,
                 bpf_flag,
                 name_of_program,
-                url_solana,
+                args.url,
                 program_id,
             );
 
             // Cleanup no matter the result
-            run_fun!(rm -rf /tmp/solana-verify/$uuid)?;
+            std::process::Command::new("rm")
+                .args(["-rf", &tmp_dir])
+                .output()?;
 
             // Compare hashes or return error
             if let Ok((build_hash, program_hash)) = result {
@@ -275,11 +281,13 @@ pub fn build(
     );
     println!("Mounting path: {}", path);
     let image = base_image.unwrap_or_else(|| "ellipsislabs/solana:latest".to_string());
+
     let cargo_command = if bpf_flag {
         "cargo build-bpf"
     } else {
         "cargo build-sbf"
     };
+
     // change directory to program/build dir
     let cd_dir = if buildpath.is_none() {
         format!("cd .")
@@ -292,7 +300,6 @@ pub fn build(
         cargo_command
     );
 
-    init_builtin_logger();
     let container_id = run_fun!(
         docker run
         --rm
@@ -300,7 +307,13 @@ pub fn build(
         -dit $image
         sh -c "$cd_dir && $cargo_command -- --locked --frozen"
     )?;
-    run_cmd!(docker logs --follow $container_id)?;
+
+    std::process::Command::new("docker")
+        .args(["logs", "--follow", &container_id])
+        .stderr(Stdio::inherit())
+        .stdout(Stdio::inherit())
+        .output()?;
+
     Ok(())
 }
 
@@ -316,10 +329,23 @@ pub fn verify_from_image(
     );
     println!("Executable path in container: {:?}", executable_path);
     println!(" ");
-    let container_id = run_fun!(
-        docker run --rm -dit $image
-    )?;
-    run_cmd!(docker cp $container_id:/build/$executable_path /tmp/program.so)?;
+
+    let container_id = std::process::Command::new("docker")
+        .args(["run", "--rm", "-dit", image.as_str()])
+        .output()
+        .map_err(|e| anyhow::format_err!("Failed to run image {}", e.to_string()))
+        .and_then(|output| parse_output(output.stdout))?;
+
+    std::process::Command::new("docker")
+        .args([
+            "cp",
+            format!("{}:/build/{}", container_id, executable_path).as_str(),
+            "/tmp/program.so",
+        ])
+        .stdout(Stdio::inherit())
+        .stderr(Stdio::inherit())
+        .output()
+        .map_err(|e| anyhow::format_err!("Failed to copy executable file {}", e.to_string()))?;
 
     let executable_hash = get_file_hash("/tmp/program.so")?;
     let client = get_client(network);
@@ -332,8 +358,19 @@ pub fn verify_from_image(
     println!("Program hash: {}", program_hash);
 
     // Cleanup docker and rm file
-    run_fun!(docker kill $container_id)?;
-    run_fun!(rm "/tmp/program.so")?;
+    std::process::Command::new("docker")
+        .args(["kill", container_id.as_str()])
+        .stderr(Stdio::inherit())
+        .output()
+        .map_err(|e| anyhow::format_err!("Docker build failed: {}", e.to_string()))?;
+
+    std::process::Command::new("rm")
+        .args(["/tmp/program.so"])
+        .stderr(Stdio::inherit())
+        .output()
+        .map_err(|e| {
+            anyhow::format_err!("Failed to remove temp program file: {}", e.to_string())
+        })?;
 
     if program_hash != executable_hash {
         println!("Executable hash mismatch");
@@ -362,8 +399,15 @@ pub fn verify_from_repo(
         "Looking for executable name {} at path: {}/target/deploy",
         executable_filename, base_repo_path
     );
-    let executable_path =
-        run_fun!(find $base_repo_path/target/deploy -name "$executable_filename")?;
+    let executable_path = std::process::Command::new("find")
+        .args([
+            &format!("{}/target/deploy", base_repo_path),
+            "-name",
+            executable_filename.as_str(),
+        ])
+        .output()
+        .map_err(|e| anyhow::format_err!("Failed to find executable file {}", e.to_string()))
+        .and_then(|output| parse_output(output.stdout))?;
     println!("Executable file found at path: {:?}", executable_path);
     let build_hash = get_file_hash(&executable_path)?;
     println!("Build hash: {}", build_hash);
@@ -376,4 +420,12 @@ pub fn verify_from_repo(
     let program_hash = get_program_hash(connection_url, program_id)?;
 
     Ok((build_hash, program_hash))
+}
+
+pub fn parse_output(output: Vec<u8>) -> anyhow::Result<String> {
+    let parsed_output = String::from_utf8(output)?
+        .strip_suffix("\n")
+        .unwrap()
+        .to_string();
+    Ok(parsed_output)
 }
