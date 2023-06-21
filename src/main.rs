@@ -48,6 +48,9 @@ enum SubCommand {
         /// Docker workdir
         #[clap(long, default_value = "build")]
         workdir: String,
+        /// If the program requires cargo build-bpf (instead of cargo build-sbf), as for anchor program, set this flag
+        #[clap(long)]
+        program_name: Option<String>,
     },
     /// Verifies a cached build from a docker image
     VerifyFromImage {
@@ -115,8 +118,16 @@ fn main() -> anyhow::Result<()> {
             base_image,
             bpf_flag,
             workdir,
+            program_name,
         } => {
-            build(filepath, program_build_dir, base_image, bpf_flag, workdir)?;
+            build(
+                filepath,
+                program_build_dir,
+                base_image,
+                bpf_flag,
+                workdir,
+                program_name,
+            )?;
             Ok(())
         }
         SubCommand::VerifyFromImage {
@@ -281,6 +292,7 @@ pub fn build(
     base_image: Option<String>,
     bpf_flag: bool,
     workdir: String,
+    program_name: Option<String>,
 ) -> anyhow::Result<()> {
     let path = filepath.unwrap_or(
         std::env::current_dir()?
@@ -300,7 +312,7 @@ pub fn build(
 
     // change directory to program/build dir
     let cd_dir = if buildpath.is_none() {
-        format!("cd .")
+        format!("cd {}", path)
     } else {
         format!("cd {}", buildpath.unwrap())
     };
@@ -310,7 +322,7 @@ pub fn build(
         cargo_command
     );
 
-    let container_id = run_fun!(
+    let container_id: String = run_fun!(
         docker run
         --rm
         -v $path:/$workdir
@@ -320,10 +332,22 @@ pub fn build(
 
     std::process::Command::new("docker")
         .args(["logs", "--follow", &container_id])
-        .stderr(Stdio::inherit())
         .stdout(Stdio::inherit())
         .output()?;
 
+    if let Some(program_name) = program_name {
+        let executable_path = std::process::Command::new("find")
+            .args([
+                &format!("{}/target/deploy", path),
+                "-name",
+                &format!("{}.so", program_name),
+            ])
+            .output()
+            .map_err(|e| anyhow!("Failed to find program: {}", e.to_string()))
+            .and_then(|output| parse_output(output.stdout))?;
+        let executable_hash = get_file_hash(&executable_path)?;
+        println!("Executable hash: {}", executable_hash);
+    }
     Ok(())
 }
 
@@ -407,6 +431,7 @@ pub fn verify_from_repo(
         base_image,
         bpf_flag,
         workdir,
+        None,
     )?;
 
     let executable_filename = format!("{}.so", name_of_program);
@@ -442,7 +467,7 @@ pub fn verify_from_repo(
 pub fn parse_output(output: Vec<u8>) -> anyhow::Result<String> {
     let parsed_output = String::from_utf8(output)?
         .strip_suffix("\n")
-        .unwrap()
+        .ok_or_else(|| anyhow!("Failed to parse output"))?
         .to_string();
     Ok(parsed_output)
 }
