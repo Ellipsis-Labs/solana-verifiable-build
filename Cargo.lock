@@ -439,6 +439,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "cargo_toml"
+version = "0.13.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "497049e9477329f8f6a559972ee42e117487d01d1e8c2cc9f836ea6fa23a9e1a"
+dependencies = [
+ "serde",
+ "toml",
+]
+
+[[package]]
 name = "cc"
 version = "1.0.78"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2050,6 +2060,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "pathdiff"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8835116a5c179084a830efb3adc117ab007512b535bc1a21c991d3b32a6b44dd"
+
+[[package]]
 name = "pbkdf2"
 version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3380,9 +3396,12 @@ name = "solana-verify"
 version = "0.2.0"
 dependencies = [
  "anyhow",
+ "cargo_toml",
  "clap 4.1.4",
  "cmd_lib",
  "hex 0.3.2",
+ "pathdiff",
+ "serde_json",
  "sha256",
  "solana-cli-config",
  "solana-client",
