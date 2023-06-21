@@ -1,14 +1,17 @@
-use std::{io::Read, path::PathBuf, process::Stdio};
-
 use anyhow::anyhow;
 use clap::{Parser, Subcommand};
-use cmd_lib::run_fun;
+use signal_hook::{
+    consts::{SIGINT, SIGTERM},
+    iterator::Signals,
+};
 use solana_cli_config::{Config, CONFIG_FILE};
 use solana_client::rpc_client::RpcClient;
 use solana_sdk::{
     bpf_loader_upgradeable::{self, UpgradeableLoaderState},
     pubkey::Pubkey,
 };
+use std::sync::{Arc, Mutex};
+use std::{io::Read, path::PathBuf, process::Stdio};
 use uuid::Uuid;
 
 pub fn get_network(network_str: &str) -> &str {
@@ -36,9 +39,9 @@ enum SubCommand {
     Build {
         /// Path to mount to the docker image
         mount_dir: Option<String>,
-        /// Path to build the docker image
-        #[clap(short, long)]
-        program_build_dir: Option<String>,
+        /// Which binary file to build (applies to repositories with multiple programs)
+        #[clap(long)]
+        package_name: Option<String>,
         /// Optionally specify a custom base docker image to use for building the program repository
         #[clap(short, long)]
         base_image: Option<String>,
@@ -48,9 +51,9 @@ enum SubCommand {
         /// Docker workdir
         #[clap(long, default_value = "build")]
         workdir: String,
-        /// If the program requires cargo build-bpf (instead of cargo build-sbf), as for anchor program, set this flag
-        #[clap(long)]
-        program_name: Option<String>,
+        /// Arguments to pass to the underlying `cargo build-bpf` command
+        #[clap(required = false, last = true)]
+        cargo_args: Vec<String>,
     },
     /// Verifies a cached build from a docker image
     VerifyFromImage {
@@ -97,36 +100,60 @@ enum SubCommand {
         base_image: Option<String>,
         /// If the repo_url points to a repo that contains multiple programs, specify the name of the program to build and verify
         #[clap(short, long, default_value = "*")]
-        name_of_program: String,
+        package_name: String,
         /// If the program requires cargo build-bpf (instead of cargo build-sbf), as for anchor program, set this flag
         #[clap(long, default_value = "false")]
         bpf_flag: bool,
         /// Docker workdir
         #[clap(long, default_value = "build")]
         workdir: String,
+        /// Arguments to pass to the underlying `cargo build-bpf` command
+        #[clap(required = false, last = true)]
+        cargo_args: Vec<String>,
     },
 }
 
 fn main() -> anyhow::Result<()> {
+    // Handle SIGTERM and SIGINT gracefully by stopping the docker container
+    let mut signals = Signals::new(&[SIGTERM, SIGINT])?;
+    let container_id: Arc<Mutex<Option<String>>> = Arc::new(Mutex::new(None));
+
+    let container_id_for_thread = container_id.clone();
+    std::thread::spawn(move || {
+        for _ in signals.forever() {
+            let container_id = container_id_for_thread.lock().unwrap();
+            if let Some(container_id) = container_id.clone().take() {
+                println!("Stopping container {}", container_id);
+                std::process::Command::new("docker")
+                    .args(&["kill", &container_id])
+                    .output()
+                    .expect("Failed to close docker container");
+                println!("Stopped container {}", container_id)
+            }
+            break;
+        }
+    });
+
     let args = Arguments::parse();
     match args.subcommand {
         SubCommand::Build {
             // mount directory
-            mount_dir: filepath,
+            mount_dir,
             // program build directory
-            program_build_dir,
+            package_name,
             base_image,
             bpf_flag,
             workdir,
-            program_name,
+            cargo_args,
         } => {
             build(
-                filepath,
-                program_build_dir,
+                mount_dir,
+                package_name,
                 base_image,
                 bpf_flag,
                 workdir,
-                program_name,
+                cargo_args,
+                container_id,
             )?;
             Ok(())
         }
@@ -134,7 +161,7 @@ fn main() -> anyhow::Result<()> {
             executable_path_in_image: executable_path,
             image,
             program_id,
-        } => verify_from_image(executable_path, image, args.url, program_id),
+        } => verify_from_image(executable_path, image, args.url, program_id, container_id),
         SubCommand::GetExecutableHash { filepath } => {
             let program_hash = get_file_hash(&filepath)?;
             println!("{}", program_hash);
@@ -156,9 +183,10 @@ fn main() -> anyhow::Result<()> {
             commit_hash,
             program_id,
             base_image,
-            name_of_program,
+            package_name,
             bpf_flag,
             workdir,
+            cargo_args,
         } => {
             // Get source code from repo_url
             let base_name = std::process::Command::new("basename")
@@ -206,10 +234,12 @@ fn main() -> anyhow::Result<()> {
                 build_path.to_str().unwrap().to_string(),
                 base_image,
                 bpf_flag,
-                name_of_program,
+                package_name,
                 args.url,
                 program_id,
                 workdir,
+                cargo_args,
+                container_id,
             );
 
             // Cleanup no matter the result
@@ -287,14 +317,15 @@ pub fn get_program_hash(url: Option<String>, program_id: Pubkey) -> anyhow::Resu
 }
 
 pub fn build(
-    filepath: Option<String>,
-    buildpath: Option<String>,
+    mount_path: Option<String>,
+    package_name: Option<String>,
     base_image: Option<String>,
     bpf_flag: bool,
     workdir: String,
-    program_name: Option<String>,
+    cargo_args: Vec<String>,
+    container_id_arc: Arc<Mutex<Option<String>>>,
 ) -> anyhow::Result<()> {
-    let path = filepath.unwrap_or(
+    let path = mount_path.unwrap_or(
         std::env::current_dir()?
             .as_os_str()
             .to_str()
@@ -304,38 +335,38 @@ pub fn build(
     println!("Mounting path: {}", path);
     let image = base_image.unwrap_or_else(|| "ellipsislabs/solana:latest".to_string());
 
-    let cargo_command = if bpf_flag {
-        "cargo build-bpf"
-    } else {
-        "cargo build-sbf"
-    };
+    let build_command = if bpf_flag { "build-bpf" } else { "build-sbf" };
+
+    let package_filter = package_name
+        .clone()
+        .map(|pkg| vec!["-p".to_string(), pkg])
+        .unwrap_or_else(|| vec![]);
 
     // change directory to program/build dir
-    let cd_dir = if buildpath.is_none() {
-        format!("cd {}", path)
-    } else {
-        format!("cd {}", buildpath.unwrap())
-    };
+    let mount_params = format!("{}:/{}", path, workdir);
+    let container_id = std::process::Command::new("docker")
+        .args(["run", "--rm", "-v", &mount_params, "-dit", &image])
+        .args(["cargo", build_command, "--", "--locked", "--frozen"])
+        .args(package_filter)
+        .args(cargo_args)
+        .stderr(Stdio::inherit())
+        .output()
+        .map_err(|e| anyhow::format_err!("Docker build failed: {}", e.to_string()))
+        .and_then(|output| parse_output(output.stdout))?;
 
-    println!(
-        "Cargo build command: {} -- --locked --frozen",
-        cargo_command
-    );
-
-    let container_id: String = run_fun!(
-        docker run
-        --rm
-        -v $path:/$workdir
-        -dit $image
-        sh -c "$cd_dir && $cargo_command -- --locked --frozen"
-    )?;
+    // Set the container id so we can kill it later if the process is interrupted
+    container_id_arc
+        .lock()
+        .unwrap()
+        .replace(container_id.clone());
 
     std::process::Command::new("docker")
         .args(["logs", "--follow", &container_id])
+        .stderr(Stdio::inherit())
         .stdout(Stdio::inherit())
         .output()?;
 
-    if let Some(program_name) = program_name {
+    if let Some(program_name) = package_name {
         let executable_path = std::process::Command::new("find")
             .args([
                 &format!("{}/target/deploy", path),
@@ -356,6 +387,7 @@ pub fn verify_from_image(
     image: String,
     network: Option<String>,
     program_id: Pubkey,
+    container_id_arc: Arc<Mutex<Option<String>>>,
 ) -> anyhow::Result<()> {
     println!(
         "Verifying image: {:?}, on network {:?} against program ID {}",
@@ -369,6 +401,11 @@ pub fn verify_from_image(
         .output()
         .map_err(|e| anyhow::format_err!("Failed to run image {}", e.to_string()))
         .and_then(|output| parse_output(output.stdout))?;
+
+    container_id_arc
+        .lock()
+        .unwrap()
+        .replace(container_id.clone());
 
     std::process::Command::new("docker")
         .args([
@@ -419,22 +456,25 @@ pub fn verify_from_repo(
     base_repo_path: String,
     base_image: Option<String>,
     bpf_flag: bool,
-    name_of_program: String,
+    package_name: String,
     connection_url: Option<String>,
     program_id: Pubkey,
     workdir: String,
+    cargo_args: Vec<String>,
+    container_id_arc: Arc<Mutex<Option<String>>>,
 ) -> anyhow::Result<(String, String)> {
     // Build the code using the docker container
     build(
         Some(base_repo_path.clone()),
-        None,
+        Some(package_name.clone()),
         base_image,
         bpf_flag,
         workdir,
-        None,
+        cargo_args,
+        container_id_arc,
     )?;
 
-    let executable_filename = format!("{}.so", name_of_program);
+    let executable_filename = format!("{}.so", package_name);
 
     // Get the hash of the build
     println!(
