@@ -71,6 +71,12 @@ enum SubCommand {
         /// The Program ID of the program to verify
         #[clap(short, long)]
         program_id: Pubkey,
+        /// Docker workdir
+        #[clap(long, default_value = "build")]
+        workdir: String,
+        /// Verify in current directory
+        #[clap(long, default_value = "false")]
+        current_dir: bool,
     },
     /// Get the hash of a program binary from an executable file
     GetExecutableHash {
@@ -164,11 +170,16 @@ fn main() -> anyhow::Result<()> {
             executable_path_in_image: executable_path,
             image,
             program_id,
+            workdir,
+            current_dir,
         } => verify_from_image(
             executable_path,
             image,
             args.url,
             program_id,
+            workdir,
+            current_dir,
+            &mut temp_dir,
             &mut container_id,
         ),
         SubCommand::GetExecutableHash { filepath } => {
@@ -331,7 +342,7 @@ pub fn get_client(url: Option<String>) -> RpcClient {
     RpcClient::new(url)
 }
 
-fn get_binary_hash(program_data: Vec<u8>) -> String {
+pub fn get_binary_hash(program_data: Vec<u8>) -> String {
     let buffer = program_data
         .into_iter()
         .rev()
@@ -437,6 +448,9 @@ pub fn verify_from_image(
     image: String,
     network: Option<String>,
     program_id: Pubkey,
+    workdir: String,
+    current_dir: bool,
+    temp_dir: &mut Option<String>,
     container_id_opt: &mut Option<String>,
 ) -> anyhow::Result<()> {
     println!(
@@ -454,18 +468,39 @@ pub fn verify_from_image(
 
     container_id_opt.replace(container_id.clone());
 
+    let uuid = Uuid::new_v4().to_string();
+
+    // Create a temporary directory to clone the repo into
+    let verify_dir = if current_dir {
+        format!(
+            "{}/{}",
+            std::env::current_dir()?
+                .as_os_str()
+                .to_str()
+                .ok_or_else(|| anyhow::Error::msg("Invalid path string"))?
+                .to_string(),
+            uuid.clone()
+        )
+    } else {
+        "/tmp".to_string()
+    };
+
+    temp_dir.replace(verify_dir.clone());
+
+    let program_filepath = format!("{}/program.so", verify_dir);
+
     std::process::Command::new("docker")
         .args([
             "cp",
-            format!("{}:/build/{}", container_id, executable_path).as_str(),
-            "/tmp/program.so",
+            format!("{}:/{}/{}", container_id, workdir, executable_path).as_str(),
+            program_filepath.as_str(),
         ])
         .stdout(Stdio::inherit())
         .stderr(Stdio::inherit())
         .output()
         .map_err(|e| anyhow::format_err!("Failed to copy executable file {}", e.to_string()))?;
 
-    let executable_hash: String = get_file_hash("/tmp/program.so")?;
+    let executable_hash: String = get_file_hash(program_filepath.as_str())?;
     let client = get_client(network);
     let program_buffer =
         Pubkey::find_program_address(&[program_id.as_ref()], &bpf_loader_upgradeable::id()).0;
@@ -483,7 +518,7 @@ pub fn verify_from_image(
         .map_err(|e| anyhow::format_err!("Docker build failed: {}", e.to_string()))?;
 
     std::process::Command::new("rm")
-        .args(["/tmp/program.so"])
+        .args([program_filepath])
         .stderr(Stdio::inherit())
         .output()
         .map_err(|e| {
