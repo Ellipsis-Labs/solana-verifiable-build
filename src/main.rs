@@ -10,7 +10,6 @@ use solana_sdk::{
     bpf_loader_upgradeable::{self, UpgradeableLoaderState},
     pubkey::Pubkey,
 };
-use std::sync::{Arc, Mutex};
 use std::{io::Read, path::PathBuf, process::Stdio};
 use uuid::Uuid;
 
@@ -85,7 +84,7 @@ enum SubCommand {
     /// Builds and verifies a program from a given repository URL and a program ID
     VerifyFromRepo {
         /// Path to the executable solana program within the source code repository if the program is not part of the top-level Cargo.toml
-        #[clap(short, long, default_value = ".")]
+        #[clap(short, long, default_value = "")]
         solana_program_path: String,
         /// The HTTPS URL of the repo to clone
         repo_url: String,
@@ -93,13 +92,13 @@ enum SubCommand {
         #[clap(long)]
         commit_hash: Option<String>,
         /// The Program ID of the program to verify
-        #[clap(short, long)]
+        #[clap(long)]
         program_id: Pubkey,
         /// Optionally specify a custom base docker image to use for building the program repository
         #[clap(short, long)]
         base_image: Option<String>,
         /// If the repo_url points to a repo that contains multiple programs, specify the name of the program to build and verify
-        #[clap(short, long, default_value = "*")]
+        #[clap(long, default_value = "*")]
         package_name: String,
         /// If the program requires cargo build-bpf (instead of cargo build-sbf), as for anchor program, set this flag
         #[clap(long, default_value = "false")]
@@ -107,6 +106,9 @@ enum SubCommand {
         /// Docker workdir
         #[clap(long, default_value = "build")]
         workdir: String,
+        /// Verify in current directory
+        #[clap(long, default_value = "false")]
+        current_dir: bool,
         /// Arguments to pass to the underlying `cargo build-bpf` command
         #[clap(required = false, last = true)]
         cargo_args: Vec<String>,
@@ -116,26 +118,44 @@ enum SubCommand {
 fn main() -> anyhow::Result<()> {
     // Handle SIGTERM and SIGINT gracefully by stopping the docker container
     let mut signals = Signals::new(&[SIGTERM, SIGINT])?;
-    let container_id: Arc<Mutex<Option<String>>> = Arc::new(Mutex::new(None));
+    let mut container_id: Option<String> = None;
+    let mut temp_dir: Option<String> = None;
 
-    let container_id_for_thread = container_id.clone();
-    std::thread::spawn(move || {
-        for _ in signals.forever() {
-            let container_id = container_id_for_thread.lock().unwrap();
-            if let Some(container_id) = container_id.clone().take() {
-                println!("Stopping container {}", container_id);
-                std::process::Command::new("docker")
-                    .args(&["kill", &container_id])
-                    .output()
-                    .expect("Failed to close docker container");
-                println!("Stopped container {}", container_id)
-            }
-            break;
-        }
-    });
+    // std::thread::spawn(move || {
+    //     for _ in signals.forever() {
+    //         let container_id = container_id_for_thread.lock().unwrap();
+    //         if let Some(container_id) = container_id.clone().take() {
+    //             println!("Stopping container {}", container_id);
+    //             if std::process::Command::new("docker")
+    //                 .args(&["kill", &container_id])
+    //                 .output()
+    //                 .is_err()
+    //             {
+    //                 println!("Failed to close docker container");
+    //             } else {
+    //                 println!("Stopped container {}", container_id)
+    //             }
+    //         }
+    //         let temp_dir = temp_dir_for_thread.lock().unwrap();
+    //         println!("temp_dir: {:?}", temp_dir);
+    //         if let Some(temp_dir) = temp_dir.clone().take() {
+    //             println!("Removing temp dir {}", temp_dir);
+    //             if std::process::Command::new("rm")
+    //                 .args(&["-rf", &temp_dir])
+    //                 .output()
+    //                 .is_err()
+    //             {
+    //                 println!("Failed to remove temp dir");
+    //             } else {
+    //                 println!("Removed temp dir {}", temp_dir);
+    //             }
+    //         }
+    //         break;
+    //     }
+    // });
 
     let args = Arguments::parse();
-    match args.subcommand {
+    let res = match args.subcommand {
         SubCommand::Build {
             // mount directory
             mount_dir,
@@ -153,7 +173,7 @@ fn main() -> anyhow::Result<()> {
                 bpf_flag,
                 workdir,
                 cargo_args,
-                container_id,
+                &mut container_id,
             )?;
             Ok(())
         }
@@ -161,7 +181,13 @@ fn main() -> anyhow::Result<()> {
             executable_path_in_image: executable_path,
             image,
             program_id,
-        } => verify_from_image(executable_path, image, args.url, program_id, container_id),
+        } => verify_from_image(
+            executable_path,
+            image,
+            args.url,
+            program_id,
+            &mut container_id,
+        ),
         SubCommand::GetExecutableHash { filepath } => {
             let program_hash = get_file_hash(&filepath)?;
             println!("{}", program_hash);
@@ -187,6 +213,7 @@ fn main() -> anyhow::Result<()> {
             bpf_flag,
             workdir,
             cargo_args,
+            current_dir,
         } => {
             // Get source code from repo_url
             let base_name = std::process::Command::new("basename")
@@ -198,18 +225,32 @@ fn main() -> anyhow::Result<()> {
             let uuid = Uuid::new_v4().to_string();
 
             // Create a temporary directory to clone the repo into
-            let tmp_dir = format!("/tmp/solana-verify/{}", uuid);
-            let tmp_file_path = format!("{}/{}", tmp_dir, base_name);
+            let verify_dir = if current_dir {
+                format!(
+                    "{}/{}",
+                    std::env::current_dir()?
+                        .as_os_str()
+                        .to_str()
+                        .ok_or_else(|| anyhow::Error::msg("Invalid path string"))?
+                        .to_string(),
+                    uuid.clone()
+                )
+            } else {
+                format!("/tmp/solana-verify/{}", uuid)
+            };
+
+            temp_dir.replace(verify_dir.clone());
+
+            let verify_tmp_file_path = format!("{}/{}", verify_dir, base_name);
 
             std::process::Command::new("git")
-                .args(["clone", &repo_url, &tmp_file_path])
+                .args(["clone", &repo_url, &verify_tmp_file_path])
                 .output()?;
 
             // Checkout a specific commit hash, if provided
             if let Some(commit_hash) = commit_hash {
-                println!("tmp_file_path: {:?}", tmp_file_path);
                 let result = std::process::Command::new("cd")
-                    .arg(&tmp_file_path)
+                    .arg(&verify_tmp_file_path)
                     .output()
                     .and_then(|_| {
                         std::process::Command::new("git")
@@ -220,14 +261,14 @@ fn main() -> anyhow::Result<()> {
                     println!("Checked out commit hash: {}", commit_hash);
                 } else {
                     std::process::Command::new("rm")
-                        .args(["-rf", format!("/tmp/solana-verify/{}", uuid).as_str()])
+                        .args(["-rf", verify_dir.as_str()])
                         .output()?;
                     Err(anyhow!("Failed to checkout commit hash: {:?}", result))?;
                 }
             }
 
             // Get the absolute build path to the solana program directory to build inside docker
-            let build_path = PathBuf::from(tmp_file_path.clone()).join(solana_program_path);
+            let build_path = PathBuf::from(verify_tmp_file_path.clone()).join(solana_program_path);
             println!("Build path: {:?}", build_path);
 
             let result = verify_from_repo(
@@ -239,12 +280,12 @@ fn main() -> anyhow::Result<()> {
                 program_id,
                 workdir,
                 cargo_args,
-                container_id,
+                &mut container_id,
             );
 
             // Cleanup no matter the result
             std::process::Command::new("rm")
-                .args(["-rf", &tmp_dir])
+                .args(["-rf", &verify_dir])
                 .output()?;
 
             // Compare hashes or return error
@@ -263,7 +304,37 @@ fn main() -> anyhow::Result<()> {
                 Err(anyhow!("Error verifying program. {:?}", result))
             }
         }
+    };
+
+    for _ in &mut signals {
+        if let Some(container_id) = container_id.clone().take() {
+            println!("Stopping container {}", container_id);
+            if std::process::Command::new("docker")
+                .args(&["kill", &container_id])
+                .output()
+                .is_err()
+            {
+                println!("Failed to close docker container");
+            } else {
+                println!("Stopped container {}", container_id)
+            }
+        }
+        println!("temp_dir: {:?}", temp_dir);
+        if let Some(temp_dir) = temp_dir.clone().take() {
+            println!("Removing temp dir {}", temp_dir);
+            if std::process::Command::new("rm")
+                .args(&["-rf", &temp_dir])
+                .output()
+                .is_err()
+            {
+                println!("Failed to remove temp dir");
+            } else {
+                println!("Removed temp dir {}", temp_dir);
+            }
+        }
+        break;
     }
+    res
 }
 
 pub fn get_client(url: Option<String>) -> RpcClient {
@@ -323,7 +394,7 @@ pub fn build(
     bpf_flag: bool,
     workdir: String,
     cargo_args: Vec<String>,
-    container_id_arc: Arc<Mutex<Option<String>>>,
+    container_id_opt: &mut Option<String>,
 ) -> anyhow::Result<()> {
     let path = mount_path.unwrap_or(
         std::env::current_dir()?
@@ -355,10 +426,7 @@ pub fn build(
         .and_then(|output| parse_output(output.stdout))?;
 
     // Set the container id so we can kill it later if the process is interrupted
-    container_id_arc
-        .lock()
-        .unwrap()
-        .replace(container_id.clone());
+    container_id_opt.replace(container_id.clone());
 
     std::process::Command::new("docker")
         .args(["logs", "--follow", &container_id])
@@ -387,7 +455,7 @@ pub fn verify_from_image(
     image: String,
     network: Option<String>,
     program_id: Pubkey,
-    container_id_arc: Arc<Mutex<Option<String>>>,
+    container_id_opt: &mut Option<String>,
 ) -> anyhow::Result<()> {
     println!(
         "Verifying image: {:?}, on network {:?} against program ID {}",
@@ -402,10 +470,7 @@ pub fn verify_from_image(
         .map_err(|e| anyhow::format_err!("Failed to run image {}", e.to_string()))
         .and_then(|output| parse_output(output.stdout))?;
 
-    container_id_arc
-        .lock()
-        .unwrap()
-        .replace(container_id.clone());
+    container_id_opt.replace(container_id.clone());
 
     std::process::Command::new("docker")
         .args([
@@ -418,7 +483,7 @@ pub fn verify_from_image(
         .output()
         .map_err(|e| anyhow::format_err!("Failed to copy executable file {}", e.to_string()))?;
 
-    let executable_hash = get_file_hash("/tmp/program.so")?;
+    let executable_hash: String = get_file_hash("/tmp/program.so")?;
     let client = get_client(network);
     let program_buffer =
         Pubkey::find_program_address(&[program_id.as_ref()], &bpf_loader_upgradeable::id()).0;
@@ -461,7 +526,7 @@ pub fn verify_from_repo(
     program_id: Pubkey,
     workdir: String,
     cargo_args: Vec<String>,
-    container_id_arc: Arc<Mutex<Option<String>>>,
+    container_id_opt: &mut Option<String>,
 ) -> anyhow::Result<(String, String)> {
     // Build the code using the docker container
     build(
@@ -471,7 +536,7 @@ pub fn verify_from_repo(
         bpf_flag,
         workdir,
         cargo_args,
-        container_id_arc,
+        container_id_opt,
     )?;
 
     let executable_filename = format!("{}.so", package_name);
