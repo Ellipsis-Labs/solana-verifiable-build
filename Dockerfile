@@ -1,7 +1,6 @@
 FROM solanalabs/rust:1.68.0
 
 RUN apt-get update && apt-get install -qy clang libudev-dev tmux vim git netcat zsh
-RUN sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)" "" --unattended
 
 WORKDIR /build
 
