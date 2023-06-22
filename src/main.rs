@@ -10,7 +10,13 @@ use solana_sdk::{
     bpf_loader_upgradeable::{self, UpgradeableLoaderState},
     pubkey::Pubkey,
 };
-use std::{io::Read, path::PathBuf, process::Stdio};
+use std::{
+    io::Read,
+    path::PathBuf,
+    process::Stdio,
+    sync::atomic::AtomicBool,
+    sync::{atomic::Ordering, Arc},
+};
 use uuid::Uuid;
 
 pub fn get_network(network_str: &str) -> &str {
@@ -120,39 +126,16 @@ fn main() -> anyhow::Result<()> {
     let mut signals = Signals::new(&[SIGTERM, SIGINT])?;
     let mut container_id: Option<String> = None;
     let mut temp_dir: Option<String> = None;
+    let caught_signal = Arc::new(AtomicBool::new(false));
 
-    // std::thread::spawn(move || {
-    //     for _ in signals.forever() {
-    //         let container_id = container_id_for_thread.lock().unwrap();
-    //         if let Some(container_id) = container_id.clone().take() {
-    //             println!("Stopping container {}", container_id);
-    //             if std::process::Command::new("docker")
-    //                 .args(&["kill", &container_id])
-    //                 .output()
-    //                 .is_err()
-    //             {
-    //                 println!("Failed to close docker container");
-    //             } else {
-    //                 println!("Stopped container {}", container_id)
-    //             }
-    //         }
-    //         let temp_dir = temp_dir_for_thread.lock().unwrap();
-    //         println!("temp_dir: {:?}", temp_dir);
-    //         if let Some(temp_dir) = temp_dir.clone().take() {
-    //             println!("Removing temp dir {}", temp_dir);
-    //             if std::process::Command::new("rm")
-    //                 .args(&["-rf", &temp_dir])
-    //                 .output()
-    //                 .is_err()
-    //             {
-    //                 println!("Failed to remove temp dir");
-    //             } else {
-    //                 println!("Removed temp dir {}", temp_dir);
-    //             }
-    //         }
-    //         break;
-    //     }
-    // });
+    let caught_signal_clone = caught_signal.clone();
+    let handle = signals.handle();
+    std::thread::spawn(move || {
+        for _ in signals.forever() {
+            caught_signal_clone.store(true, Ordering::Relaxed);
+            break;
+        }
+    });
 
     let args = Arguments::parse();
     let res = match args.subcommand {
@@ -306,7 +289,7 @@ fn main() -> anyhow::Result<()> {
         }
     };
 
-    for _ in &mut signals {
+    if caught_signal.load(Ordering::Relaxed) {
         if let Some(container_id) = container_id.clone().take() {
             println!("Stopping container {}", container_id);
             if std::process::Command::new("docker")
@@ -319,7 +302,6 @@ fn main() -> anyhow::Result<()> {
                 println!("Stopped container {}", container_id)
             }
         }
-        println!("temp_dir: {:?}", temp_dir);
         if let Some(temp_dir) = temp_dir.clone().take() {
             println!("Removing temp dir {}", temp_dir);
             if std::process::Command::new("rm")
@@ -332,8 +314,8 @@ fn main() -> anyhow::Result<()> {
                 println!("Removed temp dir {}", temp_dir);
             }
         }
-        break;
     }
+    handle.close();
     res
 }
 
