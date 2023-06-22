@@ -1,4 +1,5 @@
 use anyhow::anyhow;
+use cargo_lock::Lockfile;
 use clap::{Parser, Subcommand};
 use signal_hook::{
     consts::{SIGINT, SIGTERM},
@@ -148,24 +149,20 @@ fn main() -> anyhow::Result<()> {
         SubCommand::Build {
             // mount directory
             mount_dir,
-            // program build directory
             package_name,
             base_image,
             bpf_flag,
             workdir,
             cargo_args,
-        } => {
-            build(
-                mount_dir,
-                package_name,
-                base_image,
-                bpf_flag,
-                workdir,
-                cargo_args,
-                &mut container_id,
-            )?;
-            Ok(())
-        }
+        } => build(
+            mount_dir,
+            package_name,
+            base_image,
+            bpf_flag,
+            workdir,
+            cargo_args,
+            &mut container_id,
+        ),
         SubCommand::VerifyFromImage {
             executable_path_in_image: executable_path,
             image,
@@ -208,96 +205,21 @@ fn main() -> anyhow::Result<()> {
             workdir,
             cargo_args,
             current_dir,
-        } => {
-            // Get source code from repo_url
-            let base_name = std::process::Command::new("basename")
-                .arg(&repo_url)
-                .output()
-                .map_err(|e| anyhow!("Failed to get basename of repo_url: {:?}", e))
-                .and_then(|output| parse_output(output.stdout))?;
-
-            let uuid = Uuid::new_v4().to_string();
-
-            // Create a temporary directory to clone the repo into
-            let verify_dir = if current_dir {
-                format!(
-                    "{}/{}",
-                    std::env::current_dir()?
-                        .as_os_str()
-                        .to_str()
-                        .ok_or_else(|| anyhow::Error::msg("Invalid path string"))?
-                        .to_string(),
-                    uuid.clone()
-                )
-            } else {
-                format!("/tmp/solana-verify/{}", uuid)
-            };
-
-            temp_dir.replace(verify_dir.clone());
-
-            let verify_tmp_file_path = format!("{}/{}", verify_dir, base_name);
-
-            std::process::Command::new("git")
-                .args(["clone", &repo_url, &verify_tmp_file_path])
-                .output()?;
-
-            // Checkout a specific commit hash, if provided
-            if let Some(commit_hash) = commit_hash {
-                let result = std::process::Command::new("cd")
-                    .arg(&verify_tmp_file_path)
-                    .output()
-                    .and_then(|_| {
-                        std::process::Command::new("git")
-                            .args(["checkout", &commit_hash])
-                            .output()
-                    });
-                if result.is_ok() {
-                    println!("Checked out commit hash: {}", commit_hash);
-                } else {
-                    std::process::Command::new("rm")
-                        .args(["-rf", verify_dir.as_str()])
-                        .output()?;
-                    Err(anyhow!("Failed to checkout commit hash: {:?}", result))?;
-                }
-            }
-
-            // Get the absolute build path to the solana program directory to build inside docker
-            let build_path = PathBuf::from(verify_tmp_file_path.clone()).join(solana_program_path);
-            println!("Build path: {:?}", build_path);
-
-            let result = verify_from_repo(
-                build_path.to_str().unwrap().to_string(),
-                base_image,
-                bpf_flag,
-                package_name,
-                args.url,
-                program_id,
-                workdir,
-                cargo_args,
-                &mut container_id,
-            );
-
-            // Cleanup no matter the result
-            std::process::Command::new("rm")
-                .args(["-rf", &verify_dir])
-                .output()?;
-
-            // Compare hashes or return error
-            if let Ok((build_hash, program_hash)) = result {
-                println!("Executable Program Hash from repo: {}", build_hash);
-                println!("On-chain Program Hash: {}", program_hash);
-
-                if build_hash == program_hash {
-                    println!("Program hash matches");
-                } else {
-                    println!("Program hash does not match");
-                }
-
-                Ok(())
-            } else {
-                Err(anyhow!("Error verifying program. {:?}", result))
-            }
-        }
+        } => verify_from_repo(
+            solana_program_path,
+            args.url,
+            repo_url,
+            commit_hash,
+            program_id,
+            base_image,
+            package_name,
+            bpf_flag,
+            workdir,
+            cargo_args,
+            current_dir,
+            &mut temp_dir,
+            &mut container_id,
+        ),
     };
 
     if caught_signal.load(Ordering::Relaxed) {
@@ -473,7 +395,7 @@ pub fn verify_from_image(
     // Create a temporary directory to clone the repo into
     let verify_dir = if current_dir {
         format!(
-            "{}/{}",
+            "{}/.{}",
             std::env::current_dir()?
                 .as_os_str()
                 .to_str()
@@ -535,6 +457,111 @@ pub fn verify_from_image(
 }
 
 pub fn verify_from_repo(
+    solana_program_path: String,
+    connection_url: Option<String>,
+    repo_url: String,
+    commit_hash: Option<String>,
+    program_id: Pubkey,
+    base_image: Option<String>,
+    package_name: String,
+    bpf_flag: bool,
+    workdir: String,
+    cargo_args: Vec<String>,
+    current_dir: bool,
+    container_id_opt: &mut Option<String>,
+    temp_dir_opt: &mut Option<String>,
+) -> anyhow::Result<()> {
+    // Get source code from repo_url
+    let base_name = std::process::Command::new("basename")
+        .arg(&repo_url)
+        .output()
+        .map_err(|e| anyhow!("Failed to get basename of repo_url: {:?}", e))
+        .and_then(|output| parse_output(output.stdout))?;
+
+    let uuid = Uuid::new_v4().to_string();
+
+    // Create a temporary directory to clone the repo into
+    let verify_dir = if current_dir {
+        format!(
+            "{}/.{}",
+            std::env::current_dir()?
+                .as_os_str()
+                .to_str()
+                .ok_or_else(|| anyhow::Error::msg("Invalid path string"))?
+                .to_string(),
+            uuid.clone()
+        )
+    } else {
+        format!("/tmp/solana-verify/{}", uuid)
+    };
+
+    temp_dir_opt.replace(verify_dir.clone());
+
+    let verify_tmp_file_path = format!("{}/{}", verify_dir, base_name);
+
+    std::process::Command::new("git")
+        .args(["clone", &repo_url, &verify_tmp_file_path])
+        .output()?;
+
+    // Checkout a specific commit hash, if provided
+    if let Some(commit_hash) = commit_hash {
+        let result = std::process::Command::new("cd")
+            .arg(&verify_tmp_file_path)
+            .output()
+            .and_then(|_| {
+                std::process::Command::new("git")
+                    .args(["checkout", &commit_hash])
+                    .output()
+            });
+        if result.is_ok() {
+            println!("Checked out commit hash: {}", commit_hash);
+        } else {
+            std::process::Command::new("rm")
+                .args(["-rf", verify_dir.as_str()])
+                .output()?;
+            Err(anyhow!("Failed to checkout commit hash: {:?}", result))?;
+        }
+    }
+
+    // Get the absolute build path to the solana program directory to build inside docker
+    let build_path = PathBuf::from(verify_tmp_file_path.clone()).join(solana_program_path);
+    println!("Build path: {:?}", build_path);
+
+    let result = build_and_verify_repo(
+        build_path.to_str().unwrap().to_string(),
+        base_image,
+        bpf_flag,
+        package_name,
+        connection_url,
+        program_id,
+        workdir,
+        cargo_args,
+        container_id_opt,
+    );
+
+    // Cleanup no matter the result
+    std::process::Command::new("rm")
+        .args(["-rf", &verify_dir])
+        .output()?;
+
+    // Compare hashes or return error
+    if let Ok((build_hash, program_hash)) = result {
+        println!("Executable Program Hash from repo: {}", build_hash);
+        println!("On-chain Program Hash: {}", program_hash);
+
+        if build_hash == program_hash {
+            println!("Program hash matches");
+        } else {
+            println!("Program hash does not match");
+        }
+
+        Ok(())
+    } else {
+        Err(anyhow!("Error verifying program. {:?}", result))
+    }
+}
+
+pub fn build_and_verify_repo(
     base_repo_path: String,
     base_image: Option<String>,
     bpf_flag: bool,
@@ -592,4 +619,93 @@ pub fn parse_output(output: Vec<u8>) -> anyhow::Result<String> {
         .ok_or_else(|| anyhow!("Failed to parse output"))?
         .to_string();
     Ok(parsed_output)
+}
+
+pub fn get_solana_version_from_cargo_lock(
+    cargo_lock_file: &str,
+) -> anyhow::Result<(u32, u32, u32)> {
+    let lockfile = Lockfile::load(cargo_lock_file)?;
+    let res = lockfile
+        .packages
+        .iter()
+        .filter(|pkg| pkg.name.to_string() == "solana-program".to_string())
+        .filter_map(|pkg| {
+            let version = pkg.version.clone().to_string();
+            let version_parts: Vec<&str> = version.split(".").collect();
+            if version_parts.len() == 3 {
+                let major = version_parts[0].parse::<u32>().unwrap_or(0);
+                let minor = version_parts[1].parse::<u32>().unwrap_or(0);
+                let patch = version_parts[2].parse::<u32>().unwrap_or(0);
+                return Some((major, minor, patch));
+            }
+            return None;
+        })
+        .next()
+        .ok_or_else(|| anyhow!("Failed to parse solana-program version from Cargo.lock"))?;
+    Ok(res)
+}
+
+pub fn get_rust_version_for_solana_version(
+    major: u32,
+    minor: u32,
+    patch: u32,
+) -> anyhow::Result<String> {
+    let release = format!("v{}.{}.{}", major, minor, patch);
+    if minor > 14 {
+        // https://github.com/solana-labs/solana/commit/cdb204114ef529f9f63d4b5a995e0429919e3131
+        // This is the first commit that moves the rust version to rust-toolchain.toml (1.15.0)
+        let endpoint = format!(
+            "https://raw.githubusercontent.com/solana-labs/solana/{}/rust-toolchain.toml",
+            release
+        );
+        let body = reqwest::blocking::get(endpoint)?.text()?;
+        body.split("\n")
+            .skip(1)
+            .next()
+            .ok_or_else(|| anyhow!("Failed to parse rust version"))
+            .map(|s| s.to_string().replace("channel = ", "").replace("\"", ""))
+    } else {
+        // For all previous releases, the rust version is in ci/rust-version.sh on line 21
+        let endpoint = format!(
+            "https://raw.githubusercontent.com/solana-labs/solana/{}/ci/rust-version.sh",
+            release
+        );
+        let body = reqwest::blocking::get(endpoint)?.text()?;
+        body.split("\n")
+            .filter(|s| s.contains("stable_version"))
+            .skip(1)
+            .next()
+            .ok_or_else(|| anyhow!("Failed to parse rust version"))
+            .map(|s| {
+                s.to_string()
+                    .replace("stable_version=", "")
+                    .replace(" ", "")
+            })
+    }
+}
+
+#[test]
+fn test_rust_version() {
+    for major in [1] {
+        for minor in 0..18 {
+            for patch in 0..30 {
+                let res = get_rust_version_for_solana_version(major, minor, patch);
+                if res.is_err() {
+                    break;
+                }
+                println!("{}.{}.{}: {}", major, minor, patch, res.unwrap());
+            }
+        }
+    }
+}
+
+#[test]
+fn test_parse_cargo_log() {
+    let res = get_solana_version_from_cargo_lock("examples/hello_world/Cargo.lock").unwrap();
+    println!("{:?}", res);
+    let (major, minor, patch) = res;
+    println!(
+        "{:?}",
+        get_rust_version_for_solana_version(major, minor, patch).unwrap()
+    );
 }
