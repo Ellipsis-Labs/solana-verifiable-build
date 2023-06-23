@@ -54,10 +54,10 @@ enum SubCommand {
         base_image: Option<String>,
         /// If the program requires cargo build-bpf (instead of cargo build-sbf), as for anchor program, set this flag
         #[clap(long, default_value = "false")]
-        bpf_flag: bool,
+        bpf: bool,
         /// Docker workdir
-        #[clap(long, default_value = "build")]
-        workdir: String,
+        #[clap(long)]
+        workdir: Option<String>,
         /// Arguments to pass to the underlying `cargo build-bpf` command
         #[clap(required = false, last = true)]
         cargo_args: Vec<String>,
@@ -119,10 +119,10 @@ enum SubCommand {
         library_name: Option<String>,
         /// If the program requires cargo build-bpf (instead of cargo build-sbf), as for an Anchor program, set this flag
         #[clap(long, default_value = "false")]
-        bpf_flag: bool,
+        bpf: bool,
         /// Docker workdir
-        #[clap(long, default_value = "build")]
-        workdir: String,
+        #[clap(long)]
+        workdir: Option<String>,
         /// Verify in current directory
         #[clap(long, default_value = "false")]
         current_dir: bool,
@@ -155,7 +155,7 @@ fn main() -> anyhow::Result<()> {
             mount_directory,
             library_name,
             base_image,
-            bpf_flag,
+            bpf: bpf_flag,
             workdir,
             cargo_args,
         } => build(
@@ -205,7 +205,7 @@ fn main() -> anyhow::Result<()> {
             program_id,
             base_image,
             library_name,
-            bpf_flag,
+            bpf: bpf_flag,
             workdir,
             cargo_args,
             current_dir,
@@ -311,7 +311,7 @@ pub fn build(
     library_name: Option<String>,
     base_image: Option<String>,
     bpf_flag: bool,
-    workdir: String,
+    workdir_opt: Option<String>,
     cargo_args: Vec<String>,
     container_id_opt: &mut Option<String>,
 ) -> anyhow::Result<()> {
@@ -330,14 +330,21 @@ pub fn build(
         return Err(anyhow!(format!("No lockfile found at {}", lockfile)));
     }
 
-    let image = base_image.unwrap_or_else(|| "ellipsislabs/solana:latest".to_string());
-
     let is_anchor = std::path::Path::new(&format!("{}/Anchor.toml", mount_path)).exists();
     let build_command = if bpf_flag || is_anchor {
         "build-bpf"
     } else {
         "build-sbf"
     };
+
+    let image = base_image.unwrap_or_else(|| {
+        if bpf_flag || is_anchor {
+            "projectserum/build:v0.26.0"
+        } else {
+            "ellipsislabs/solana:latest"
+        }
+        .to_string()
+    });
 
     let mut package_name = None;
 
@@ -370,6 +377,15 @@ pub fn build(
             Err(anyhow!("No Cargo.toml files found"))
         })
         .unwrap_or_else(|_| "".to_string());
+
+    let workdir = workdir_opt.unwrap_or_else(|| {
+        if bpf_flag || is_anchor {
+            "workdir"
+        } else {
+            "build"
+        }
+        .to_string()
+    });
 
     let build_path = format!("/{}/{}", workdir, relative_build_path);
     println!("Building program at {}", build_path);
@@ -433,7 +449,7 @@ pub fn build(
             .map_err(|e| anyhow!("Failed to find program: {}", e.to_string()))
             .and_then(|output| parse_output(output.stdout))?;
         let executable_hash = get_file_hash(&executable_path)?;
-        println!("Executable hash: {}", executable_hash);
+        println!("{}", executable_hash);
     }
     std::process::Command::new("docker")
         .args(&["kill", &container_id])
@@ -541,7 +557,7 @@ pub fn verify_from_repo(
     base_image: Option<String>,
     library_name_opt: Option<String>,
     bpf_flag: bool,
-    workdir: String,
+    workdir: Option<String>,
     cargo_args: Vec<String>,
     current_dir: bool,
     container_id_opt: &mut Option<String>,
@@ -573,16 +589,17 @@ pub fn verify_from_repo(
 
     temp_dir_opt.replace(verify_dir.clone());
 
-    let verify_tmp_file_path = format!("{}/{}", verify_dir, base_name);
+    let verify_tmp_root_path = format!("{}/{}", verify_dir, base_name);
+    println!("Cloning repo into: {}", verify_tmp_root_path);
 
     std::process::Command::new("git")
-        .args(["clone", &repo_url, &verify_tmp_file_path])
+        .args(["clone", &repo_url, &verify_tmp_root_path])
         .output()?;
 
     // Checkout a specific commit hash, if provided
     if let Some(commit_hash) = commit_hash {
         let result = std::process::Command::new("cd")
-            .arg(&verify_tmp_file_path)
+            .arg(&verify_tmp_root_path)
             .output()
             .and_then(|_| {
                 std::process::Command::new("git")
@@ -600,7 +617,7 @@ pub fn verify_from_repo(
     }
 
     // Get the absolute build path to the solana program directory to build inside docker
-    let mount_path = PathBuf::from(verify_tmp_file_path.clone()).join(relative_mount_path);
+    let mount_path = PathBuf::from(verify_tmp_root_path.clone()).join(relative_mount_path);
     println!("Build path: {:?}", mount_path);
 
     let library_name = match library_name_opt {
@@ -671,9 +688,9 @@ pub fn verify_from_repo(
         println!("On-chain Program Hash: {}", program_hash);
 
         if build_hash == program_hash {
-            println!("Program hash matches");
+            println!("Program hash matches ✅");
         } else {
-            println!("Program hash does not match");
+            println!("Program hashes do not match ❌");
         }
 
         Ok(())
@@ -689,7 +706,7 @@ pub fn build_and_verify_repo(
     library_name: String,
     connection_url: Option<String>,
     program_id: Pubkey,
-    workdir: String,
+    workdir: Option<String>,
     cargo_args: Vec<String>,
     container_id_opt: &mut Option<String>,
 ) -> anyhow::Result<(String, String)> {
@@ -706,10 +723,6 @@ pub fn build_and_verify_repo(
     )?;
 
     // Get the hash of the build
-    println!(
-        "Looking for executable name {} at path: {}/target/deploy",
-        executable_filename, mount_path
-    );
     let executable_path = std::process::Command::new("find")
         .args([
             &format!("{}/target/deploy", mount_path),
@@ -721,7 +734,6 @@ pub fn build_and_verify_repo(
         .and_then(|output| parse_output(output.stdout))?;
     println!("Executable file found at path: {:?}", executable_path);
     let build_hash = get_file_hash(&executable_path)?;
-    println!("Build hash: {}", build_hash);
 
     // Get the hash of the deployed program
     println!(
