@@ -363,6 +363,8 @@ pub fn build(
                     Ok(name) => {
                         if name == library_name.clone().unwrap_or_default() {
                             package_name = get_pkg_name_from_cargo_toml(p);
+                            println!("Package name: {:?}", package_name);
+                            println!("Cargo path: {}", p);
                             return Ok(p
                                 .to_string()
                                 .replace("/Cargo.toml", "")
