@@ -221,8 +221,8 @@ fn main() -> anyhow::Result<()> {
             workdir,
             cargo_args,
             current_dir,
-            &mut temp_dir,
             &mut container_id,
+            &mut temp_dir,
         ),
     };
 
