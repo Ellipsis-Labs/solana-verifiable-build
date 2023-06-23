@@ -597,33 +597,13 @@ pub fn verify_from_repo(
         .stdout(Stdio::inherit())
         .output()?;
 
-    std::process::Command::new("ls")
-        .args(["-la"])
-        .stdout(Stdio::inherit())
-        .output()?;
-
-    std::process::Command::new("cd")
-        .args([&verify_dir])
-        .stdout(Stdio::inherit())
-        .output()?;
-
-    std::process::Command::new("ls")
-        .args(["-la"])
-        .stdout(Stdio::inherit())
-        .output()?;
-
     // Checkout a specific commit hash, if provided
     if let Some(commit_hash) = commit_hash {
-        let result = std::process::Command::new("cd")
-            .arg(&verify_tmp_root_path)
+        let result = std::process::Command::new("git")
+            .args(["-C", &verify_tmp_root_path])
+            .args(["checkout", &commit_hash])
             .output()
-            .map_err(|e| anyhow!("Failed to cd into {}: {:?}", verify_tmp_root_path, e))
-            .and_then(|_| {
-                std::process::Command::new("git")
-                    .args(["checkout", &commit_hash])
-                    .output()
-                    .map_err(|e| anyhow!("Failed to checkout commit hash: {:?}", e))
-            });
+            .map_err(|e| anyhow!("Failed to checkout commit hash: {:?}", e));
         if result.is_ok() {
             println!("Checked out commit hash: {}", commit_hash);
         } else {
