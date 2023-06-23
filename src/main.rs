@@ -45,10 +45,10 @@ enum SubCommand {
     /// Deterministically build the program in an Docker container
     Build {
         /// Path to mount to the docker image
-        mount_dir: Option<String>,
+        mount_directory: Option<String>,
         /// Which binary file to build (applies to repositories with multiple programs)
         #[clap(long)]
-        package_name: Option<String>,
+        library_name: Option<String>,
         /// Optionally specify a custom base docker image to use for building the program repository
         #[clap(short, long)]
         base_image: Option<String>,
@@ -97,9 +97,10 @@ enum SubCommand {
     },
     /// Builds and verifies a program from a given repository URL and a program ID
     VerifyFromRepo {
-        /// Path to the executable solana program within the source code repository if the program is not part of the top-level Cargo.toml
-        #[clap(short, long, default_value = "")]
-        solana_program_path: String,
+        /// Relative path to the root directory or the source code repository from which to build the program
+        /// This should be the directory that contains the workspace Cargo.toml and the Cargo.lock file
+        #[clap(long, default_value = "")]
+        mount_path: String,
         /// The HTTPS URL of the repo to clone
         repo_url: String,
         /// Optional commit hash to checkout
@@ -111,12 +112,12 @@ enum SubCommand {
         /// Optionally specify a custom base docker image to use for building the program repository
         #[clap(short, long)]
         base_image: Option<String>,
-        /// If the repo_url points to a repo that contains multiple programs, specify the name of the program to build and verify
-        /// You will also need to specify the package_name if the program is not part of the top-level Cargo.toml
+        /// If the repo_url points to a repo that contains multiple programs, specify the name of the library name of the program to
+        /// build and verify. You will also need to specify the library_name if the program is not part of the top-level Cargo.toml
         /// Otherwise it will be inferred from the Cargo.toml file
         #[clap(long)]
-        package_name: Option<String>,
-        /// If the program requires cargo build-bpf (instead of cargo build-sbf), as for anchor program, set this flag
+        library_name: Option<String>,
+        /// If the program requires cargo build-bpf (instead of cargo build-sbf), as for an Anchor program, set this flag
         #[clap(long, default_value = "false")]
         bpf_flag: bool,
         /// Docker workdir
@@ -151,15 +152,15 @@ fn main() -> anyhow::Result<()> {
     let res = match args.subcommand {
         SubCommand::Build {
             // mount directory
-            mount_dir,
-            package_name,
+            mount_directory,
+            library_name,
             base_image,
             bpf_flag,
             workdir,
             cargo_args,
         } => build(
-            mount_dir,
-            package_name,
+            mount_directory,
+            library_name,
             base_image,
             bpf_flag,
             workdir,
@@ -198,24 +199,24 @@ fn main() -> anyhow::Result<()> {
             Ok(())
         }
         SubCommand::VerifyFromRepo {
-            solana_program_path,
+            mount_path,
             repo_url,
             commit_hash,
             program_id,
             base_image,
-            package_name,
+            library_name,
             bpf_flag,
             workdir,
             cargo_args,
             current_dir,
         } => verify_from_repo(
-            solana_program_path,
+            mount_path,
             args.url,
             repo_url,
             commit_hash,
             program_id,
             base_image,
-            package_name,
+            library_name,
             bpf_flag,
             workdir,
             cargo_args,
@@ -306,24 +307,24 @@ pub fn get_program_hash(url: Option<String>, program_id: Pubkey) -> anyhow::Resu
 }
 
 pub fn build(
-    mount_path: Option<String>,
-    package_name: Option<String>,
+    mount_directory: Option<String>,
+    library_name: Option<String>,
     base_image: Option<String>,
     bpf_flag: bool,
     workdir: String,
     cargo_args: Vec<String>,
     container_id_opt: &mut Option<String>,
 ) -> anyhow::Result<()> {
-    let path = mount_path.unwrap_or(
+    let mount_path = mount_directory.unwrap_or(
         std::env::current_dir()?
             .as_os_str()
             .to_str()
             .ok_or_else(|| anyhow::Error::msg("Invalid path string"))?
             .to_string(),
     );
-    println!("Mounting path: {}", path);
+    println!("Mounting path: {}", mount_path);
 
-    let lockfile = format!("{}/Cargo.lock", path);
+    let lockfile = format!("{}/Cargo.lock", mount_path);
     if !std::path::Path::new(&lockfile).exists() {
         println!("Mount directory must contain a Cargo.lock file");
         return Err(anyhow!(format!("No lockfile found at {}", lockfile)));
@@ -331,15 +332,17 @@ pub fn build(
 
     let image = base_image.unwrap_or_else(|| "ellipsislabs/solana:latest".to_string());
 
-    let is_anchor = std::path::Path::new(&format!("{}/Anchor.toml", path)).exists();
+    let is_anchor = std::path::Path::new(&format!("{}/Anchor.toml", mount_path)).exists();
     let build_command = if bpf_flag || is_anchor {
         "build-bpf"
     } else {
         "build-sbf"
     };
 
+    let mut package_name = None;
+
     let relative_build_path = std::process::Command::new("find")
-        .args([&path, "-name", "Cargo.toml"])
+        .args([&mount_path, "-name", "Cargo.toml"])
         .output()
         .map_err(|e| {
             anyhow::format_err!(
@@ -351,8 +354,12 @@ pub fn build(
             for p in String::from_utf8(output.stdout)?.split("\n") {
                 match get_lib_name_from_cargo_toml(p) {
                     Ok(name) => {
-                        if name == package_name.clone().unwrap_or_default() {
-                            return Ok(p.to_string().replace("/Cargo.toml", "").replace(&path, ""));
+                        if name == library_name.clone().unwrap_or_default() {
+                            package_name = get_pkg_name_from_cargo_toml(p);
+                            return Ok(p
+                                .to_string()
+                                .replace("/Cargo.toml", "")
+                                .replace(&mount_path, ""));
                         }
                     }
                     Err(_) => {
@@ -372,8 +379,12 @@ pub fn build(
         .map(|pkg| vec!["-p".to_string(), pkg])
         .unwrap_or_else(|| vec![]);
 
+    if package_name.is_some() {
+        println!("Building package: {}", package_name.unwrap());
+    }
+
     // change directory to program/build dir
-    let mount_params = format!("{}:/{}", path, workdir);
+    let mount_params = format!("{}:/{}", mount_path, workdir);
     let container_id = std::process::Command::new("docker")
         .args(["run", "--rm", "-v", &mount_params, "-dit", &image, "bash"])
         .stderr(Stdio::inherit())
@@ -384,16 +395,18 @@ pub fn build(
     // Set the container id so we can kill it later if the process is interrupted
     container_id_opt.replace(container_id.clone());
 
-    // First, we resolve the dependencies and cache them in the docker container
-    // ARM processors running Linux have a bug where the build fails if the dependencies
-    // because the container runs out of memory. This is a workaround for that issue.
+    // First, we resolve the dependencies and cache them in the Docker container
+    // ARM processors running Linux have a bug where the build fails if the dependencies are not preloaded.
+    // Running the build without the pre-fetch will cause the container to run out of memory.
+    // This is a workaround for that issue.
     std::process::Command::new("docker")
         .args(["exec", &container_id])
         .args([
             "cargo",
             "--config",
             "net.git-fetch-with-cli=true",
-            "metadata",
+            "fetch",
+            "--locked",
         ])
         .stderr(Stdio::inherit())
         .stdout(Stdio::inherit())
@@ -402,27 +415,17 @@ pub fn build(
     println!("Finished fetching build dependencies");
     std::process::Command::new("docker")
         .args(["exec", "-w", &build_path, &container_id])
-        .args([
-            "cargo",
-            build_command,
-            "--",
-            "--locked",
-            "--frozen",
-            "-Z",
-            "unstable-options",
-            "--config",
-            "net.git-fetch-with-cli=true",
-        ])
+        .args(["cargo", build_command, "--", "--locked", "--frozen"])
         .args(package_filter)
         .args(cargo_args)
         .stderr(Stdio::inherit())
         .stdout(Stdio::inherit())
         .output()?;
 
-    if let Some(program_name) = package_name {
+    if let Some(program_name) = library_name {
         let executable_path = std::process::Command::new("find")
             .args([
-                &format!("{}/target/deploy", path),
+                &format!("{}/target/deploy", mount_path),
                 "-name",
                 &format!("{}.so", program_name),
             ])
@@ -432,15 +435,9 @@ pub fn build(
         let executable_hash = get_file_hash(&executable_path)?;
         println!("Executable hash: {}", executable_hash);
     }
-    if std::process::Command::new("docker")
+    std::process::Command::new("docker")
         .args(&["kill", &container_id])
-        .output()
-        .is_err()
-    {
-        println!("Failed to close docker container");
-    } else {
-        println!("Stopped container {}", container_id)
-    }
+        .output()?;
     Ok(())
 }
 
@@ -536,13 +533,13 @@ pub fn verify_from_image(
 }
 
 pub fn verify_from_repo(
-    solana_program_path: String,
+    relative_mount_path: String,
     connection_url: Option<String>,
     repo_url: String,
     commit_hash: Option<String>,
     program_id: Pubkey,
     base_image: Option<String>,
-    package_name_opt: Option<String>,
+    library_name_opt: Option<String>,
     bpf_flag: bool,
     workdir: String,
     cargo_args: Vec<String>,
@@ -603,15 +600,15 @@ pub fn verify_from_repo(
     }
 
     // Get the absolute build path to the solana program directory to build inside docker
-    let base_path = PathBuf::from(verify_tmp_file_path.clone()).join(solana_program_path);
-    println!("Build path: {:?}", base_path);
+    let mount_path = PathBuf::from(verify_tmp_file_path.clone()).join(relative_mount_path);
+    println!("Build path: {:?}", mount_path);
 
-    let package_name = match package_name_opt {
+    let library_name = match library_name_opt {
         Some(p) => p,
         None => {
             let name =
                 std::process::Command::new("find")
-                    .args([base_path.to_str().unwrap(), "-name", "Cargo.toml"])
+                    .args([mount_path.to_str().unwrap(), "-name", "Cargo.toml"])
                     .output()
                     .map_err(|e| {
                         anyhow::format_err!(
@@ -649,17 +646,13 @@ pub fn verify_from_repo(
             name
         }
     };
-    println!("Verifying program: {}", package_name);
-
-    std::process::Command::new("cd")
-        .arg(base_path.to_str().unwrap())
-        .output()?;
+    println!("Verifying program: {}", library_name);
 
     let result = build_and_verify_repo(
-        base_path.to_str().unwrap().to_string(),
+        mount_path.to_str().unwrap().to_string(),
         base_image,
         bpf_flag,
-        package_name,
+        library_name,
         connection_url,
         program_id,
         workdir,
@@ -690,10 +683,10 @@ pub fn verify_from_repo(
 }
 
 pub fn build_and_verify_repo(
-    base_repo_path: String,
+    mount_path: String,
     base_image: Option<String>,
     bpf_flag: bool,
-    package_name: String,
+    library_name: String,
     connection_url: Option<String>,
     program_id: Pubkey,
     workdir: String,
@@ -701,9 +694,10 @@ pub fn build_and_verify_repo(
     container_id_opt: &mut Option<String>,
 ) -> anyhow::Result<(String, String)> {
     // Build the code using the docker container
+    let executable_filename = format!("{}.so", &library_name);
     build(
-        Some(base_repo_path.clone()),
-        Some(package_name.clone()),
+        Some(mount_path.clone()),
+        Some(library_name),
         base_image,
         bpf_flag,
         workdir,
@@ -711,16 +705,14 @@ pub fn build_and_verify_repo(
         container_id_opt,
     )?;
 
-    let executable_filename = format!("{}.so", package_name);
-
     // Get the hash of the build
     println!(
         "Looking for executable name {} at path: {}/target/deploy",
-        executable_filename, base_repo_path
+        executable_filename, mount_path
     );
     let executable_path = std::process::Command::new("find")
         .args([
-            &format!("{}/target/deploy", base_repo_path),
+            &format!("{}/target/deploy", mount_path),
             "-name",
             executable_filename.as_str(),
         ])
@@ -749,7 +741,7 @@ pub fn parse_output(output: Vec<u8>) -> anyhow::Result<String> {
     Ok(parsed_output)
 }
 
-pub fn get_package_version_from_cargo_lock(
+pub fn get_pkg_version_from_cargo_lock(
     package_name: &str,
     cargo_lock_file: &str,
 ) -> anyhow::Result<(u32, u32, u32)> {
@@ -781,6 +773,12 @@ pub fn get_lib_name_from_cargo_toml(cargo_toml_file: &str) -> anyhow::Result<Str
         .ok_or_else(|| anyhow!("Failed to parse lib from Cargo.toml"))?;
     lib.name
         .ok_or_else(|| anyhow!("Failed to parse lib name from Cargo.toml"))
+}
+
+pub fn get_pkg_name_from_cargo_toml(cargo_toml_file: &str) -> Option<String> {
+    let manifest = Manifest::from_path(cargo_toml_file).ok()?;
+    let pkg = manifest.package?;
+    Some(pkg.name)
 }
 
 pub fn get_rust_version_for_solana_version(
@@ -839,9 +837,8 @@ fn test_rust_version() {
 
 #[test]
 fn test_parse_cargo_log() {
-    let res =
-        get_package_version_from_cargo_lock("solana-program", "examples/hello_world/Cargo.lock")
-            .unwrap();
+    let res = get_pkg_version_from_cargo_lock("solana-program", "examples/hello_world/Cargo.lock")
+        .unwrap();
     println!("{:?}", res);
     let (major, minor, patch) = res;
     println!(
