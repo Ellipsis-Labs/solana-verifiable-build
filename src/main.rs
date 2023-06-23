@@ -602,8 +602,13 @@ pub fn verify_from_repo(
         .stdout(Stdio::inherit())
         .output()?;
 
+    std::process::Command::new("cd")
+        .args([&verify_dir])
+        .stdout(Stdio::inherit())
+        .output()?;
+
     std::process::Command::new("ls")
-        .args(["-la", &verify_dir])
+        .args(["-la"])
         .stdout(Stdio::inherit())
         .output()?;
 
