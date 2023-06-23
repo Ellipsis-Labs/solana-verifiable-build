@@ -13,6 +13,30 @@ To install the Solana Verify cli, run the following in your shell:
 ```
 bash <(curl -sSf https://raw.githubusercontent.com/Ellipsis-Labs/solana-verifiable-build/master/verifier-cli-install.sh)
 ```
+## Mainnet Verified Programs
+### Phoenix
+```
+solana-verify verify-from-repo -um --program-id PhoeNiXZ8ByJGLkxNfZRnkUfjvmuYqLR89jjFHGqdXY https://github.com/Ellipsis-Labs/phoenix-v1
+```
+Fianl Output:
+```
+Executable Program Hash from repo: 7c76ba11f8742d040b1a874d943c2096f1b3a48db14d2a5b411fd5dad5d1bc2d
+On-chain Program Hash: 7c76ba11f8742d040b1a874d943c2096f1b3a48db14d2a5b411fd5dad5d1bc2d
+Program hash matches ✅
+```
+
+### Squads V3
+```
+solana-verify verify-from-repo https://github.com/Squads-Protocol/squads-mpl --commit-hash c95b7673d616c377a349ca424261872dfcf8b19d --program-id SMPLecH534NA9acpos4G6x7uf3LWbCAwZQE9e8ZekMu -um --library-name squads_mpl --bpf
+```
+(Note: we needed to specify the `library-name` because the Squads repo includes multiple programs. We use the `--bpf` flag because `squads_mpl` was previously verified with Anchor.)
+
+Final Output:
+```
+Executable Program Hash from repo: 72da599d9ee14b2a03a23ccfa6f06d53eea4a00825ad2191929cbd78fb69205c
+On-chain Program Hash: 72da599d9ee14b2a03a23ccfa6f06d53eea4a00825ad2191929cbd78fb69205c
+Program hash matches ✅
+```
 
 ## Example Walkthrough
 
