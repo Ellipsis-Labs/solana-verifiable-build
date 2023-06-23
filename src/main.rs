@@ -601,10 +601,12 @@ pub fn verify_from_repo(
         let result = std::process::Command::new("cd")
             .arg(&verify_tmp_root_path)
             .output()
+            .map_err(|e| anyhow!("Failed to cd into verify_tmp_root_path: {:?}", e))
             .and_then(|_| {
                 std::process::Command::new("git")
                     .args(["checkout", &commit_hash])
                     .output()
+                    .map_err(|e| anyhow!("Failed to checkout commit hash: {:?}", e))
             });
         if result.is_ok() {
             println!("Checked out commit hash: {}", commit_hash);
@@ -612,7 +614,7 @@ pub fn verify_from_repo(
             std::process::Command::new("rm")
                 .args(["-rf", verify_dir.as_str()])
                 .output()?;
-            Err(anyhow!("Failed to checkout commit hash: {:?}", result))?;
+            Err(anyhow!("Encountered error in git setup: {:?}", result))?;
         }
     }
 
