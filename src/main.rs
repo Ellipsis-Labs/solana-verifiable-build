@@ -365,7 +365,7 @@ pub fn build(
                             package_name = get_pkg_name_from_cargo_toml(p);
                             return Ok(p
                                 .to_string()
-                                .replace("/Cargo.toml", "")
+                                .replace("Cargo.toml", "")
                                 .replace(&mount_path, ""));
                         }
                     }
