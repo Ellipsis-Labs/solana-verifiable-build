@@ -18,7 +18,7 @@ bash <(curl -sSf https://raw.githubusercontent.com/Ellipsis-Labs/solana-verifiab
 ```
 solana-verify verify-from-repo -um --program-id PhoeNiXZ8ByJGLkxNfZRnkUfjvmuYqLR89jjFHGqdXY https://github.com/Ellipsis-Labs/phoenix-v1
 ```
-Fianl Output:
+Final Output:
 ```
 Executable Program Hash from repo: 7c76ba11f8742d040b1a874d943c2096f1b3a48db14d2a5b411fd5dad5d1bc2d
 On-chain Program Hash: 7c76ba11f8742d040b1a874d943c2096f1b3a48db14d2a5b411fd5dad5d1bc2d
