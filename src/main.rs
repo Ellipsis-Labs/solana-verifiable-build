@@ -594,6 +594,17 @@ pub fn verify_from_repo(
 
     std::process::Command::new("git")
         .args(["clone", &repo_url, &verify_tmp_root_path])
+        .stdout(Stdio::inherit())
+        .output()?;
+
+    std::process::Command::new("ls")
+        .args(["-la"])
+        .stdout(Stdio::inherit())
+        .output()?;
+
+    std::process::Command::new("ls")
+        .args(["-la", &verify_dir])
+        .stdout(Stdio::inherit())
         .output()?;
 
     // Checkout a specific commit hash, if provided
@@ -601,7 +612,7 @@ pub fn verify_from_repo(
         let result = std::process::Command::new("cd")
             .arg(&verify_tmp_root_path)
             .output()
-            .map_err(|e| anyhow!("Failed to cd into verify_tmp_root_path: {:?}", e))
+            .map_err(|e| anyhow!("Failed to cd into {}: {:?}", verify_tmp_root_path, e))
             .and_then(|_| {
                 std::process::Command::new("git")
                     .args(["checkout", &commit_hash])
