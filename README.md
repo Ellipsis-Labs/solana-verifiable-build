@@ -8,7 +8,14 @@ In order for this CLI to work properly, you must have `docker` installed on your
 
 Once the installation is complete, make sure that the server has been started: (https://docs.docker.com/config/daemon/start/)
 
-To install the Solana Verify cli, run the following in your shell:
+You will also need to install Cargo if you don't already have it.
+
+Run the following command in your shell to install it (or visit https://rustup.rs/):
+```
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+```
+
+Finally, to install the Solana Verify cli, run the following in your shell:
 
 ```
 cargo install solana-verify
