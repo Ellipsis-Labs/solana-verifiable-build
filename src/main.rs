@@ -55,9 +55,6 @@ enum SubCommand {
         /// If the program requires cargo build-bpf (instead of cargo build-sbf), as for anchor program, set this flag
         #[clap(long, default_value = "false")]
         bpf: bool,
-        /// Docker workdir
-        #[clap(long)]
-        workdir: Option<String>,
         /// Arguments to pass to the underlying `cargo build-bpf` command
         #[clap(required = false, last = true)]
         cargo_args: Vec<String>,
@@ -73,9 +70,6 @@ enum SubCommand {
         /// The Program ID of the program to verify
         #[clap(short, long)]
         program_id: Pubkey,
-        /// Docker workdir
-        #[clap(long, default_value = "build")]
-        workdir: String,
         /// Verify in current directory
         #[clap(long, default_value = "false")]
         current_dir: bool,
@@ -120,9 +114,6 @@ enum SubCommand {
         /// If the program requires cargo build-bpf (instead of cargo build-sbf), as for an Anchor program, set this flag
         #[clap(long, default_value = "false")]
         bpf: bool,
-        /// Docker workdir
-        #[clap(long)]
-        workdir: Option<String>,
         /// Verify in current directory
         #[clap(long, default_value = "false")]
         current_dir: bool,
@@ -156,14 +147,12 @@ fn main() -> anyhow::Result<()> {
             library_name,
             base_image,
             bpf: bpf_flag,
-            workdir,
             cargo_args,
         } => build(
             mount_directory,
             library_name,
             base_image,
             bpf_flag,
-            workdir,
             cargo_args,
             &mut container_id,
         ),
@@ -171,14 +160,12 @@ fn main() -> anyhow::Result<()> {
             executable_path_in_image: executable_path,
             image,
             program_id,
-            workdir,
             current_dir,
         } => verify_from_image(
             executable_path,
             image,
             args.url,
             program_id,
-            workdir,
             current_dir,
             &mut temp_dir,
             &mut container_id,
@@ -206,7 +193,6 @@ fn main() -> anyhow::Result<()> {
             base_image,
             library_name,
             bpf: bpf_flag,
-            workdir,
             cargo_args,
             current_dir,
         } => verify_from_repo(
@@ -218,7 +204,6 @@ fn main() -> anyhow::Result<()> {
             base_image,
             library_name,
             bpf_flag,
-            workdir,
             cargo_args,
             current_dir,
             &mut container_id,
@@ -311,7 +296,6 @@ pub fn build(
     library_name: Option<String>,
     base_image: Option<String>,
     bpf_flag: bool,
-    workdir_opt: Option<String>,
     cargo_args: Vec<String>,
     container_id_opt: &mut Option<String>,
 ) -> anyhow::Result<()> {
@@ -330,18 +314,16 @@ pub fn build(
         return Err(anyhow!(format!("No lockfile found at {}", lockfile)));
     }
 
-    let is_anchor = std::path::Path::new(&format!("{}/Anchor.toml", mount_path)).exists();
-    let build_command = if bpf_flag || is_anchor {
-        "build-bpf"
-    } else {
-        "build-sbf"
-    };
+    let build_command = if bpf_flag { "build-bpf" } else { "build-sbf" };
 
     let image = base_image.unwrap_or_else(|| {
-        if bpf_flag || is_anchor {
-            "projectserum/build:v0.26.0"
+        if bpf_flag {
+            // Use this for backwards compatibility with anchor verified builds
+            "projectserum/build@sha256:75b75eab447ebcca1f471c98583d9b5d82c4be122c470852a022afcf9c98bead"
         } else {
-            "ellipsislabs/solana:latest"
+            // TODO: Update this to route to a different docker image based off the Solana version
+            // in the Cargo.lock file
+            "ellipsislabs/solana@sha256:eb050ec6c9f83df67324bb2e36b971b9ae162a4f1db6b314af889d6d6e939315"
         }
         .to_string()
     });
@@ -378,16 +360,16 @@ pub fn build(
         })
         .unwrap_or_else(|_| "".to_string());
 
-    let workdir = workdir_opt.unwrap_or_else(|| {
-        if bpf_flag || is_anchor {
-            "workdir"
-        } else {
-            "build"
-        }
-        .to_string()
-    });
+    let workdir = std::process::Command::new("docker")
+        .args(["run", "--rm", &image, "pwd"])
+        .stderr(Stdio::inherit())
+        .output()
+        .map_err(|e| anyhow::format_err!("Failed to get workdir: {}", e.to_string()))
+        .and_then(|output| parse_output(output.stdout))?;
 
-    let build_path = format!("/{}/{}", workdir, relative_build_path);
+    println!("Workdir: {}", workdir);
+
+    let build_path = format!("{}/{}", workdir, relative_build_path);
     println!("Building program at {}", build_path);
 
     let package_filter = package_name
@@ -400,7 +382,7 @@ pub fn build(
     }
 
     // change directory to program/build dir
-    let mount_params = format!("{}:/{}", mount_path, workdir);
+    let mount_params = format!("{}:{}", mount_path, workdir);
     let container_id = std::process::Command::new("docker")
         .args(["run", "--rm", "-v", &mount_params, "-dit", &image, "bash"])
         .stderr(Stdio::inherit())
@@ -462,7 +444,6 @@ pub fn verify_from_image(
     image: String,
     network: Option<String>,
     program_id: Pubkey,
-    workdir: String,
     current_dir: bool,
     temp_dir: &mut Option<String>,
     container_id_opt: &mut Option<String>,
@@ -473,6 +454,15 @@ pub fn verify_from_image(
     );
     println!("Executable path in container: {:?}", executable_path);
     println!(" ");
+
+    let workdir = std::process::Command::new("docker")
+        .args(["run", "--rm", &image, "pwd"])
+        .stderr(Stdio::inherit())
+        .output()
+        .map_err(|e| anyhow::format_err!("Failed to get workdir: {}", e.to_string()))
+        .and_then(|output| parse_output(output.stdout))?;
+
+    println!("Workdir: {}", workdir);
 
     let container_id = std::process::Command::new("docker")
         .args(["run", "--rm", "-dit", image.as_str()])
@@ -502,11 +492,10 @@ pub fn verify_from_image(
     temp_dir.replace(verify_dir.clone());
 
     let program_filepath = format!("{}/program.so", verify_dir);
-
     std::process::Command::new("docker")
         .args([
             "cp",
-            format!("{}:/{}/{}", container_id, workdir, executable_path).as_str(),
+            format!("{}:{}/{}", container_id, workdir, executable_path).as_str(),
             program_filepath.as_str(),
         ])
         .stdout(Stdio::inherit())
@@ -557,7 +546,6 @@ pub fn verify_from_repo(
     base_image: Option<String>,
     library_name_opt: Option<String>,
     bpf_flag: bool,
-    workdir: Option<String>,
     cargo_args: Vec<String>,
     current_dir: bool,
     container_id_opt: &mut Option<String>,
@@ -670,7 +658,6 @@ pub fn verify_from_repo(
         library_name,
         connection_url,
         program_id,
-        workdir,
         cargo_args,
         container_id_opt,
     );
@@ -704,7 +691,6 @@ pub fn build_and_verify_repo(
     library_name: String,
     connection_url: Option<String>,
     program_id: Pubkey,
-    workdir: Option<String>,
     cargo_args: Vec<String>,
     container_id_opt: &mut Option<String>,
 ) -> anyhow::Result<(String, String)> {
@@ -715,7 +701,6 @@ pub fn build_and_verify_repo(
         Some(library_name),
         base_image,
         bpf_flag,
-        workdir,
         cargo_args,
         container_id_opt,
     )?;
@@ -789,70 +774,4 @@ pub fn get_pkg_name_from_cargo_toml(cargo_toml_file: &str) -> Option<String> {
     let manifest = Manifest::from_path(cargo_toml_file).ok()?;
     let pkg = manifest.package?;
     Some(pkg.name)
-}
-
-pub fn get_rust_version_for_solana_version(
-    major: u32,
-    minor: u32,
-    patch: u32,
-) -> anyhow::Result<String> {
-    let release = format!("v{}.{}.{}", major, minor, patch);
-    if minor > 14 {
-        // https://github.com/solana-labs/solana/commit/cdb204114ef529f9f63d4b5a995e0429919e3131
-        // This is the first commit that moves the rust version to rust-toolchain.toml (1.15.0)
-        let endpoint = format!(
-            "https://raw.githubusercontent.com/solana-labs/solana/{}/rust-toolchain.toml",
-            release
-        );
-        let body = reqwest::blocking::get(endpoint)?.text()?;
-        body.split("\n")
-            .skip(1)
-            .next()
-            .ok_or_else(|| anyhow!("Failed to parse rust version"))
-            .map(|s| s.to_string().replace("channel = ", "").replace("\"", ""))
-    } else {
-        // For all previous releases, the rust version is in ci/rust-version.sh on line 21
-        let endpoint = format!(
-            "https://raw.githubusercontent.com/solana-labs/solana/{}/ci/rust-version.sh",
-            release
-        );
-        let body = reqwest::blocking::get(endpoint)?.text()?;
-        body.split("\n")
-            .filter(|s| s.contains("stable_version"))
-            .skip(1)
-            .next()
-            .ok_or_else(|| anyhow!("Failed to parse rust version"))
-            .map(|s| {
-                s.to_string()
-                    .replace("stable_version=", "")
-                    .replace(" ", "")
-            })
-    }
-}
-
-#[test]
-fn test_rust_version() {
-    for major in [1] {
-        for minor in 10..18 {
-            for patch in 0..30 {
-                let res = get_rust_version_for_solana_version(major, minor, patch);
-                if res.is_err() {
-                    break;
-                }
-                println!("{}.{}.{}: {}", major, minor, patch, res.unwrap());
-            }
-        }
-    }
-}
-
-#[test]
-fn test_parse_cargo_log() {
-    let res = get_pkg_version_from_cargo_lock("solana-program", "examples/hello_world/Cargo.lock")
-        .unwrap();
-    println!("{:?}", res);
-    let (major, minor, patch) = res;
-    println!(
-        "{:?}",
-        get_rust_version_for_solana_version(major, minor, patch).unwrap()
-    );
 }
