@@ -21,6 +21,57 @@ Finally, to install the Solana Verify cli, run the following in your shell:
 cargo install solana-verify
 ```
 
+## Building Verifiable Programs
+
+To verifiably build your Solana program, go to the directory with the workspace Cargo.toml file and run the following:
+```
+solana-verify build
+```
+
+If you're working in a repository with multiple programs, in order to build a specific program, `$PROGRAM_LIB_NAME`, run the following:
+```
+solana-verify build --library-name $PROGRAM_LIB_NAME
+```
+The string that's passed in must be the *lib* name and NOT the *package* name. These are usually the same, but the distinction is important.
+![image](https://github.com/Ellipsis-Labs/solana-verifiable-build/assets/61092285/0427e88f-cc0f-465f-b2e9-747ea1b8d3af)
+
+
+(NOTE: These commands can take up to 30 minutes if you're running on an M1 Macbook Pro. This has to do with the architecture emulation required to ensure build determinism. For best performance, it is recommended to run builds on a Linux machine running x86)
+
+You can now print the executable hash of the program by running the following:
+```
+solana-verify get-executable-hash target/deploy/$PROGRAM_LIB_NAME.so
+```
+
+
+## Deploying Verifiable Programs
+
+When the build completes, the executable file in `target/deploy/$PROGRAM_LIB_NAME.so` will contain the buffer to upload to the network.
+
+In order to directly upload the program to chain (NOT RECOMMENDED), run the following:
+```
+solana program deploy -u $NETWORK_URL target/deploy/$PROGRAM_LIB_NAME.so --program-id $PROGRAM_ID --upgrade-authority $UPDGRADE_AUTHORITY
+```
+The same caveats apply as any normal deployment. See the Solana [docs](https://docs.solana.com/cli/deploy-a-program) for more details.
+
+Once the upload is completed, you can verify that the program hash matches the executable hash computed in the previous step:
+```
+solana-verify get-program-hash -u $NETWORK_URL $PROGRAM_ID
+```
+
+The recommended approach for deploying program is to use (Squads V3)[https://docs.squads.so/squads-v3-docs/navigating-your-squad/developers/programs].
+
+To upgrade a verifiable build, run the following to upload the program buffer:
+```
+solana program write-buffer -u $NETWORK_URL target/deploy/$PROGRAM_LIB_NAME.so
+```
+
+This command will output a `$BUFFER_ADDRESS`. Before voting you upgrade the program, verify that the following command produces an identical hash to executable hash (built from the previous step)
+```
+solana-verify get-buffer-hash -u $NETWORK_URL $BUFFER_ADDRESS
+```
+
+
 ## Mainnet Verified Programs
 ### Phoenix
 ```
