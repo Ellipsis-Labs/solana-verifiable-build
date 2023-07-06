@@ -59,7 +59,7 @@ Once the upload is completed, you can verify that the program hash matches the e
 solana-verify get-program-hash -u $NETWORK_URL $PROGRAM_ID
 ```
 
-The recommended approach for deploying program is to use (Squads V3)[https://docs.squads.so/squads-v3-docs/navigating-your-squad/developers/programs].
+The recommended approach for deploying program is to use [Squads V3](https://docs.squads.so/squads-v3-docs/navigating-your-squad/developers/programs).
 
 To upgrade a verifiable build, run the following to upload the program buffer:
 ```
