@@ -66,7 +66,7 @@ To upgrade a verifiable build, run the following to upload the program buffer:
 solana program write-buffer -u $NETWORK_URL target/deploy/$PROGRAM_LIB_NAME.so
 ```
 
-This command will output a `$BUFFER_ADDRESS`. Before voting you upgrade the program, verify that the following command produces an identical hash to executable hash (built from the previous step)
+This command will output a `$BUFFER_ADDRESS`. Before voting to upgrade the program, verify that the following command produces an identical hash to executable hash (built from the previous step)
 ```
 solana-verify get-buffer-hash -u $NETWORK_URL $BUFFER_ADDRESS
 ```
