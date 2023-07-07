@@ -323,7 +323,7 @@ pub fn build(
         } else {
             // TODO: Update this to route to a different docker image based off the Solana version
             // in the Cargo.lock file
-            "ellipsislabs/solana@sha256:eb050ec6c9f83df67324bb2e36b971b9ae162a4f1db6b314af889d6d6e939315"
+            "ellipsislabs/solana@sha256:7b002dfaa945f6d293a9458f816c2972b9238439280c02d51cfa6d637d16875e"
         }
         .to_string()
     });
