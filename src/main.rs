@@ -328,7 +328,7 @@ pub fn build(
         .to_string()
     });
 
-    let mut package_name = None;
+    let mut manifest_path = None;
 
     let relative_build_path = std::process::Command::new("find")
         .args([&mount_path, "-name", "Cargo.toml"])
@@ -344,7 +344,7 @@ pub fn build(
                 match get_lib_name_from_cargo_toml(p) {
                     Ok(name) => {
                         if name == library_name.clone().unwrap_or_default() {
-                            package_name = get_pkg_name_from_cargo_toml(p);
+                            manifest_path = Some(p.to_string().replace(&mount_path, ""));
                             return Ok(p
                                 .to_string()
                                 .replace("Cargo.toml", "")
@@ -372,13 +372,17 @@ pub fn build(
     let build_path = format!("{}/{}", workdir, relative_build_path);
     println!("Building program at {}", build_path);
 
-    let package_filter = package_name
+    let manifest_path_filter = manifest_path
         .clone()
-        .map(|pkg| vec!["-p".to_string(), pkg])
+        .map(|m| vec!["--manifest-path".to_string(), format!("{}/{}", workdir, m)])
         .unwrap_or_else(|| vec![]);
 
-    if package_name.is_some() {
-        println!("Building package: {}", package_name.unwrap());
+    if manifest_path.is_some() {
+        println!(
+            "Building manifest path: {}/{}",
+            workdir,
+            manifest_path.unwrap()
+        );
     }
 
     // change directory to program/build dir
@@ -414,7 +418,7 @@ pub fn build(
     std::process::Command::new("docker")
         .args(["exec", "-w", &build_path, &container_id])
         .args(["cargo", build_command, "--", "--locked", "--frozen"])
-        .args(package_filter)
+        .args(manifest_path_filter)
         .args(cargo_args)
         .stderr(Stdio::inherit())
         .stdout(Stdio::inherit())
