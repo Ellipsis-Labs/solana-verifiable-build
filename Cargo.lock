@@ -3490,13 +3490,14 @@ dependencies = [
 
 [[package]]
 name = "solana-verify"
-version = "0.2.2"
+version = "0.2.3"
 dependencies = [
  "anyhow",
  "cargo-lock",
  "cargo_toml",
  "clap 4.1.4",
  "hex 0.3.2",
+ "lazy_static",
  "pathdiff",
  "reqwest",
  "serde_json",
