@@ -336,18 +336,17 @@ pub fn build(
                 println!("Unable to find docker image for Solana version {}.{}.{}", major, minor, patch);
                 let prev = IMAGE_MAP.range(..(major, minor, patch)).next_back();
                 let next = IMAGE_MAP.range((major, minor, patch)..).next();
-                if let Some((version, digest)) = prev {
-                    println!("Using docker image for Solana version {}.{}.{}", version.0, version.1, version.2);
-                    solana_version = Some(format!("v{}.{}.{}", version.0, version.1, version.2));
-                    format!("ellipsislabs/solana@{}", digest)
+                let (version, digest) = if let Some((version, digest)) = prev {
+                    (version, digest)
                 } else if let Some((version, digest)) = next {
-                    println!("Using docker image for Solana version {}.{}.{}", version.0, version.1, version.2);
-                    solana_version = Some(format!("v{}.{}.{}", version.0, version.1, version.2));
-                    format!("ellipsislabs/solana@{}", digest)
+                    (version, digest)
                 } else {
-                    println!("Unable to find docker image for Solana version {}.{}.{}", major, minor, patch);
+                    println!("Unable to find backup docker image for Solana version {}.{}.{}", major, minor, patch);
                     std::process::exit(1); 
-                }
+                };
+                println!("Using backup docker image for Solana version {}.{}.{}", version.0, version.1, version.2);
+                solana_version = Some(format!("v{}.{}.{}", version.0, version.1, version.2));
+                format!("ellipsislabs/solana@{}", digest)
             }
         }
     });
