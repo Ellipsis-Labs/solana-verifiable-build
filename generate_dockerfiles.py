@@ -1,9 +1,11 @@
 import subprocess
 import os
 import argparse
+import requests
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--upload", action="store_true")
+parser.add_argument("--skip_cache", action="store_true")
 args = parser.parse_args()
 
 VERSION_PLACEHOLDER = "$VERSION"
@@ -26,6 +28,9 @@ output = subprocess.check_output(
 
 def check_version(version_str):
     try:
+        # Ignore this one
+        if version_str == "v1.14.0":
+            return False
         [major, minor, _patch] = version_str.strip("v").split(".")
         return int(major) >= 1 and int(minor) >= 14
     except Exception as e:
@@ -53,10 +58,28 @@ for release in tags:
     dockerfiles[release] = path
 
 if args.upload:
+    digest_set = set()
+    if not args.skip_cache:
+        print("Fetching existing images")
+        response = requests.get(
+            "https://hub.docker.com/v2/namespaces/ellipsislabs/repositories/solana/tags?page_size=1000"
+        )
+        for result in response.json()["results"]:
+            if result["name"] != "latest":
+                try:
+                    digest_set.add(result["name"])
+                except Exception as e:
+                    print(e)
+                    continue
+
     print("Uploading all Dockerfiles")
     for tag, dockerfile in dockerfiles.items():
         # Strip the `v` from the tag to keep the versions consistent in Docker
-        version_tag = f"solana:{tag.strip('v')}"
+        stripped_tag = tag.strip("v")
+        if stripped_tag in digest_set:
+            print(f"Already built image for {stripped_tag}, skipping")
+            continue
+        version_tag = f"solana:{stripped_tag}"
         print(version_tag)
         current_directory = os.getcwd()
         res = subprocess.call(

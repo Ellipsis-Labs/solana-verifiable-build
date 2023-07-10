@@ -3497,6 +3497,7 @@ dependencies = [
  "cargo_toml",
  "clap 4.1.4",
  "hex 0.3.2",
+ "lazy_static",
  "pathdiff",
  "reqwest",
  "serde_json",

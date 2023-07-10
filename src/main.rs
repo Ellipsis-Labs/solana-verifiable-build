@@ -20,6 +20,9 @@ use std::{
     sync::{atomic::Ordering, Arc},
 };
 use uuid::Uuid;
+pub mod image_config;
+
+use image_config::IMAGE_MAP;
 
 pub fn get_network(network_str: &str) -> &str {
     match network_str {
@@ -316,16 +319,35 @@ pub fn build(
 
     let build_command = if bpf_flag { "build-bpf" } else { "build-sbf" };
 
-    let image = base_image.unwrap_or_else(|| {
+    let (major, minor, patch) = get_pkg_version_from_cargo_lock("solana-program", &lockfile)?;
+
+    let mut solana_version: Option<String> = None;
+    let  image: String = base_image.unwrap_or_else(|| {
         if bpf_flag {
             // Use this for backwards compatibility with anchor verified builds
-            "projectserum/build@sha256:75b75eab447ebcca1f471c98583d9b5d82c4be122c470852a022afcf9c98bead"
+            solana_version = Some("v1.13.5".to_string());
+            "projectserum/build@sha256:75b75eab447ebcca1f471c98583d9b5d82c4be122c470852a022afcf9c98bead".to_string()
         } else {
-            // TODO: Update this to route to a different docker image based off the Solana version
-            // in the Cargo.lock file
-            "ellipsislabs/solana@sha256:7b002dfaa945f6d293a9458f816c2972b9238439280c02d51cfa6d637d16875e"
+            if let Some(digest) = IMAGE_MAP.get(&(major, minor, patch)) {
+
+                solana_version = Some(format!("v{}.{}.{}", major, minor, patch));
+                format!("ellipsislabs/solana@{}", digest)
+            } else {
+                println!("Unable to find docker image for Solana version {}.{}.{}", major, minor, patch);
+                let prev = IMAGE_MAP.range(..(major, minor, patch)).next_back();
+                let next = IMAGE_MAP.range((major, minor, patch)..).next();
+                if let Some((version, digest)) = prev {
+                    solana_version = Some(format!("v{}.{}.{}", version.0, version.1, version.2));
+                    format!("ellipsislabs/solana@{}", digest)
+                } else if let Some((version, digest)) = next {
+                    solana_version = Some(format!("v{}.{}.{}", version.0, version.1, version.2));
+                    format!("ellipsislabs/solana@{}", digest)
+                } else {
+                    println!("Unable to find docker image for Solana version {}.{}.{}", major, minor, patch);
+                    std::process::exit(1); 
+                }
+            }
         }
-        .to_string()
     });
 
     let mut manifest_path = None;
@@ -423,6 +445,12 @@ pub fn build(
         .stderr(Stdio::inherit())
         .stdout(Stdio::inherit())
         .output()?;
+
+    println!("Finished building program");
+    println!("Program Solana version: {}", format!("v{}.{}.{}", major, minor, patch));
+    if let Some(solana_version) = solana_version {
+        println!("Docker image Solana version: {}", solana_version);
+    }
 
     if let Some(program_name) = library_name {
         let executable_path = std::process::Command::new("find")

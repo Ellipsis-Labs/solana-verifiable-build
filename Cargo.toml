@@ -21,6 +21,7 @@ pathdiff = "0.2.0"
 signal-hook = "0.3.15"
 reqwest = "0.11.18"
 cargo-lock = "9.0.0"
+lazy_static = "1.4.0"
 
 [dependencies.uuid]
 version = "1.2.2"
