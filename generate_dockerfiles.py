@@ -32,7 +32,8 @@ def check_version(version_str):
         if version_str == "v1.14.0":
             return False
         [major, minor, _patch] = version_str.strip("v").split(".")
-        return int(major) >= 1 and int(minor) >= 14
+        # Ignore 1.15.x
+        return int(major) >= 1 and int(minor) >= 14 and int(minor) != 15
     except Exception as e:
         return False
 

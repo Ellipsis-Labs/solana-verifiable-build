@@ -25,9 +25,6 @@ lazy_static! {
         m.insert((1, 14, 18), "sha256:fe75071a171f817799cb33821f7d680d594d6f066440c9a4c3fd54b55b681439");
         m.insert((1, 14, 19), "sha256:3e567c978dfc782f60c4ce768738cfacc5c36bd005becd1c14379b120d8f9174");
         m.insert((1, 14, 20), "sha256:e9501544d3d085bbbff7c100898ce29bf085dd8c851fb85a73b00f72b2ce7c4c");
-        m.insert((1, 15, 0), "sha256:a757e2fae64c17273a8ca4dbd4951c427a95df677fe180bbab9e14744aa3aa0b");
-        m.insert((1, 15, 1), "sha256:bade492bb15e8485ff5a392146d38e4e655b656040b85ddd758eb7383d35e148");
-        m.insert((1, 15, 2), "sha256:004336407be9e14a2ca84ba8a81ca4f585a354c0279c23dc3f141a4c53d7fdea");
         m.insert((1, 16, 0), "sha256:eaf330939f614dab0c1daab2db65431753f114c82c62f9868f1993010db0e814");
         m.insert((1, 16, 1), "sha256:0e0b25a58363ceacfa63130c220affde874a9fe6872c9bdeceef2a3ab20a0c62");
         m.insert((1, 16, 2), "sha256:f18ea6e9f41e2cd23f1519ab0c327c671af697f14bcabfc7f86b14dee11e53f6");
