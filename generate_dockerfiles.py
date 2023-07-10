@@ -46,7 +46,7 @@ tags = list(
 dockerfiles = {}
 
 for release in tags:
-    dockerfile = base_dockerfile_text.replace(VERSION_PLACEHOLDER, release).strip("\n")
+    dockerfile = base_dockerfile_text.replace(VERSION_PLACEHOLDER, release).lstrip("\n")
     path = f"docker/{release}.Dockerfile"
     with open(path, "w") as f:
         f.write(dockerfile)
