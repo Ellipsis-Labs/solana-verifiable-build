@@ -329,7 +329,7 @@ pub fn build(
             "projectserum/build@sha256:75b75eab447ebcca1f471c98583d9b5d82c4be122c470852a022afcf9c98bead".to_string()
         } else {
             if let Some(digest) = IMAGE_MAP.get(&(major, minor, patch)) {
-
+                println!("Found docker image for Solana version {}.{}.{}", major, minor, patch);
                 solana_version = Some(format!("v{}.{}.{}", major, minor, patch));
                 format!("ellipsislabs/solana@{}", digest)
             } else {
@@ -337,9 +337,11 @@ pub fn build(
                 let prev = IMAGE_MAP.range(..(major, minor, patch)).next_back();
                 let next = IMAGE_MAP.range((major, minor, patch)..).next();
                 if let Some((version, digest)) = prev {
+                    println!("Using docker image for Solana version {}.{}.{}", version.0, version.1, version.2);
                     solana_version = Some(format!("v{}.{}.{}", version.0, version.1, version.2));
                     format!("ellipsislabs/solana@{}", digest)
                 } else if let Some((version, digest)) = next {
+                    println!("Using docker image for Solana version {}.{}.{}", version.0, version.1, version.2);
                     solana_version = Some(format!("v{}.{}.{}", version.0, version.1, version.2));
                     format!("ellipsislabs/solana@{}", digest)
                 } else {
