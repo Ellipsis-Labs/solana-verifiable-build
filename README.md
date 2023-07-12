@@ -97,6 +97,18 @@ On-chain Program Hash: 72da599d9ee14b2a03a23ccfa6f06d53eea4a00825ad2191929cbd78f
 Program hash matches ✅
 ```
 
+### Drift V2
+```
+solana-verify verify-from-repo -um --program-id dRiftyHA39MWEi3m9aunc5MzRF1JYuBsbn6VPcn33UH https://github.com/drift-labs/protocol-v2 --commit-hash 110d3ff4f8ba07c178d69f9bfc7b30194fac56d6 --library-name drift
+```
+
+Final Output:
+```
+Executable Program Hash from repo: e31d58edeabc3c30bf6f2aa60bfaa5e492b41ec203e9006404b463e5adee5828
+On-chain Program Hash: e31d58edeabc3c30bf6f2aa60bfaa5e492b41ec203e9006404b463e5adee5828
+Program hash matches ✅
+```
+
 ## Example Walkthrough
 
 After installing the CLI, we can test the program verification against the following immutable mainnet program: `2ZrriTQSVekoj414Ynysd48jyn4AX6ZF4TTJRqHfbJfn`
