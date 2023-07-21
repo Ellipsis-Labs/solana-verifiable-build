@@ -50,7 +50,7 @@ When the build completes, the executable file in `target/deploy/$PROGRAM_LIB_NAM
 
 In order to directly upload the program to chain (NOT RECOMMENDED), run the following:
 ```
-solana program deploy -u $NETWORK_URL target/deploy/$PROGRAM_LIB_NAME.so --program-id $PROGRAM_ID --upgrade-authority $UPDGRADE_AUTHORITY
+solana program deploy -u $NETWORK_URL target/deploy/$PROGRAM_LIB_NAME.so --program-id $PROGRAM_ID --upgrade-authority $UPGRADE_AUTHORITY
 ```
 The same caveats apply as any normal deployment. See the Solana [docs](https://docs.solana.com/cli/deploy-a-program) for more details.
 
