@@ -2,6 +2,8 @@ use anyhow::anyhow;
 use cargo_lock::Lockfile;
 use cargo_toml::Manifest;
 use clap::{Parser, Subcommand};
+use reqwest::Client;
+use serde_json::json;
 use signal_hook::{
     consts::{SIGINT, SIGTERM},
     iterator::Signals,
@@ -94,6 +96,9 @@ enum SubCommand {
     },
     /// Builds and verifies a program from a given repository URL and a program ID
     VerifyFromRepo {
+        /// Send the verify command to a remote machine
+         #[clap(long, default_value = "false")]
+        remote: bool,
         /// Relative path to the root directory or the source code repository from which to build the program
         /// This should be the directory that contains the workspace Cargo.toml and the Cargo.lock file
         #[clap(long, default_value = "")]
@@ -126,7 +131,8 @@ enum SubCommand {
     },
 }
 
-fn main() -> anyhow::Result<()> {
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
     // Handle SIGTERM and SIGINT gracefully by stopping the docker container
     let mut signals = Signals::new(&[SIGTERM, SIGINT])?;
     let mut container_id: Option<String> = None;
@@ -189,6 +195,7 @@ fn main() -> anyhow::Result<()> {
             Ok(())
         }
         SubCommand::VerifyFromRepo {
+            remote,
             mount_path,
             repo_url,
             commit_hash,
@@ -199,6 +206,7 @@ fn main() -> anyhow::Result<()> {
             cargo_args,
             current_dir,
         } => verify_from_repo(
+            remote,
             mount_path,
             args.url,
             repo_url,
@@ -211,7 +219,7 @@ fn main() -> anyhow::Result<()> {
             current_dir,
             &mut container_id,
             &mut temp_dir,
-        ),
+        ).await,
     };
 
     if caught_signal.load(Ordering::Relaxed) || res.is_err() {
@@ -570,7 +578,8 @@ pub fn verify_from_image(
     Ok(())
 }
 
-pub fn verify_from_repo(
+pub async fn verify_from_repo(
+    remote: bool,
     relative_mount_path: String,
     connection_url: Option<String>,
     repo_url: String,
@@ -584,6 +593,13 @@ pub fn verify_from_repo(
     container_id_opt: &mut Option<String>,
     temp_dir_opt: &mut Option<String>,
 ) -> anyhow::Result<()> {
+
+    if remote {
+        println!("Sending verify command to remote machine");
+        send_job_to_remote(&repo_url, &commit_hash, &program_id, &library_name_opt, bpf_flag).await?;
+        return Ok(());
+    }
+
     // Get source code from repo_url
     let base_name = std::process::Command::new("basename")
         .arg(&repo_url)
@@ -807,4 +823,35 @@ pub fn get_pkg_name_from_cargo_toml(cargo_toml_file: &str) -> Option<String> {
     let manifest = Manifest::from_path(cargo_toml_file).ok()?;
     let pkg = manifest.package?;
     Some(pkg.name)
+}
+
+pub async fn send_job_to_remote(
+    repo_url: &str,
+    commit_hash: &Option<String>,
+    program_id: &Pubkey,
+    library_name: &Option<String>,
+    bpf_flag: bool,
+) -> anyhow::Result<()> {
+    let client = Client::new();
+
+    // Send the POST request
+    let response = client
+        .post("https://verify.osec.io/verify")
+        .json(&json!({
+                "repository": repo_url,
+                "commit_hash": commit_hash,
+                "program_id": program_id.to_string(),
+                "lib_name": library_name,
+                "bpf_flag": bpf_flag,
+            })
+        )
+        .send()
+        .await?;
+
+    if response.status().is_success() {
+        println!("Successfully sent job to remote");
+        Ok(())
+    } else {
+        Err(anyhow!("Encountered error while sending job to remote : {:?}", response.status()))?
+    }
 }
