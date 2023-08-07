@@ -125,6 +125,18 @@ On-chain Program Hash: e31d58edeabc3c30bf6f2aa60bfaa5e492b41ec203e9006404b463e5a
 Program hash matches ✅
 ```
 
+### Marginfi V2
+```
+solana-verify verify-from-repo -um --program-id MFv2hWf31Z9kbCa1snEPYctwafyhdvnV7FZnsebVacA https://github.com/mrgnlabs/marginfi-v2 --library-name marginfi -- --features mainnet-beta
+```
+
+Final Output:
+```
+Executable Program Hash from repo: 7b37482dd6b2159932b5c2595bc6ce62cf6e587ae67f237c8152b802bf7d7bb8
+On-chain Program Hash: 7b37482dd6b2159932b5c2595bc6ce62cf6e587ae67f237c8152b802bf7d7bb8
+Program hash matches ✅
+```
+
 ## Example Walkthrough
 
 After installing the CLI, we can test the program verification against the following immutable mainnet program: `2ZrriTQSVekoj414Ynysd48jyn4AX6ZF4TTJRqHfbJfn`
