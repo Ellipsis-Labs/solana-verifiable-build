@@ -97,7 +97,7 @@ enum SubCommand {
     /// Builds and verifies a program from a given repository URL and a program ID
     VerifyFromRepo {
         /// Send the verify command to a remote machine
-         #[clap(long, default_value = "false")]
+        #[clap(long, default_value = "false")]
         remote: bool,
         /// Relative path to the root directory or the source code repository from which to build the program
         /// This should be the directory that contains the workspace Cargo.toml and the Cargo.lock file
@@ -205,21 +205,24 @@ async fn main() -> anyhow::Result<()> {
             bpf: bpf_flag,
             cargo_args,
             current_dir,
-        } => verify_from_repo(
-            remote,
-            mount_path,
-            args.url,
-            repo_url,
-            commit_hash,
-            program_id,
-            base_image,
-            library_name,
-            bpf_flag,
-            cargo_args,
-            current_dir,
-            &mut container_id,
-            &mut temp_dir,
-        ).await,
+        } => {
+            verify_from_repo(
+                remote,
+                mount_path,
+                args.url,
+                repo_url,
+                commit_hash,
+                program_id,
+                base_image,
+                library_name,
+                bpf_flag,
+                cargo_args,
+                current_dir,
+                &mut container_id,
+                &mut temp_dir,
+            )
+            .await
+        }
     };
 
     if caught_signal.load(Ordering::Relaxed) || res.is_err() {
@@ -456,7 +459,10 @@ pub fn build(
         .output()?;
 
     println!("Finished building program");
-    println!("Program Solana version: {}", format!("v{}.{}.{}", major, minor, patch));
+    println!(
+        "Program Solana version: {}",
+        format!("v{}.{}.{}", major, minor, patch)
+    );
     if let Some(solana_version) = solana_version {
         println!("Docker image Solana version: {}", solana_version);
     }
@@ -578,6 +584,7 @@ pub fn verify_from_image(
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 pub async fn verify_from_repo(
     remote: bool,
     relative_mount_path: String,
@@ -593,10 +600,19 @@ pub async fn verify_from_repo(
     container_id_opt: &mut Option<String>,
     temp_dir_opt: &mut Option<String>,
 ) -> anyhow::Result<()> {
-
     if remote {
         println!("Sending verify command to remote machine");
-        send_job_to_remote(&repo_url, &commit_hash, &program_id, &library_name_opt, bpf_flag).await?;
+        send_job_to_remote(
+            &repo_url,
+            &commit_hash,
+            &program_id,
+            &library_name_opt,
+            bpf_flag,
+            relative_mount_path,
+            base_image,
+            cargo_args,
+        )
+        .await?;
         return Ok(());
     }
 
@@ -733,6 +749,7 @@ pub async fn verify_from_repo(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn build_and_verify_repo(
     mount_path: String,
     base_image: Option<String>,
@@ -825,12 +842,16 @@ pub fn get_pkg_name_from_cargo_toml(cargo_toml_file: &str) -> Option<String> {
     Some(pkg.name)
 }
 
+#[allow(clippy::too_many_arguments)]
 pub async fn send_job_to_remote(
     repo_url: &str,
     commit_hash: &Option<String>,
     program_id: &Pubkey,
     library_name: &Option<String>,
     bpf_flag: bool,
+    relative_mount_path: String,
+    base_image: Option<String>,
+    cargo_args: Vec<String>,
 ) -> anyhow::Result<()> {
     let client = Client::new();
 
@@ -838,13 +859,19 @@ pub async fn send_job_to_remote(
     let response = client
         .post("https://verify.osec.io/verify")
         .json(&json!({
-                "repository": repo_url,
-                "commit_hash": commit_hash,
-                "program_id": program_id.to_string(),
-                "lib_name": library_name,
-                "bpf_flag": bpf_flag,
-            })
-        )
+            "repository": repo_url,
+            "commit_hash": commit_hash,
+            "program_id": program_id.to_string(),
+            "lib_name": library_name,
+            "bpf_flag": bpf_flag,
+            "mount_path":  if relative_mount_path.is_empty() {
+                None
+            } else {
+                Some(relative_mount_path)
+            },
+            "base_image": base_image,
+            "cargo_args": cargo_args,
+        }))
         .send()
         .await?;
 
@@ -852,6 +879,9 @@ pub async fn send_job_to_remote(
         println!("Successfully sent job to remote");
         Ok(())
     } else {
-        Err(anyhow!("Encountered error while sending job to remote : {:?}", response.status()))?
+        Err(anyhow!(
+            "Encountered an error while attempting to send the job to remote : {:?}",
+            response.status()
+        ))?
     }
 }
