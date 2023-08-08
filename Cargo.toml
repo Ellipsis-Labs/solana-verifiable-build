@@ -1,6 +1,6 @@
 [package]
 name = "solana-verify"
-version = "0.2.3"
+version = "0.2.4"
 edition = "2021"
 description = "A CLI tool for building verifiable Solana programs"
 license = "MIT"
@@ -10,6 +10,7 @@ license = "MIT"
 [dependencies]
 clap = { version = "4.1.4", features = ["derive"] }
 anyhow = "1.0.68"
+tokio = { version = "1.29.1", features = ["full"] }
 solana-client = "1.14.10"
 solana-cli-config = "1.14.10"
 solana-sdk = "1.14.10"
