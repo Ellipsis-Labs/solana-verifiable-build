@@ -3,7 +3,7 @@ use cargo_lock::Lockfile;
 use cargo_toml::Manifest;
 use clap::{Parser, Subcommand};
 use reqwest::Client;
-use serde_json::json;
+use serde_json::{json, Value};
 use signal_hook::{
     consts::{SIGINT, SIGTERM},
     iterator::Signals,
@@ -19,12 +19,14 @@ use std::{
     path::PathBuf,
     process::Stdio,
     sync::atomic::AtomicBool,
-    sync::{atomic::Ordering, Arc},
+    sync::{atomic::Ordering, Arc}, time::Duration,
 };
 use uuid::Uuid;
 pub mod image_config;
 
 use image_config::IMAGE_MAP;
+
+const MAINNET_GENESIS_HASH : &str = "5eykt4UsFv8P8NJdTREpY1vzqKqZKvdpKuc147dw2N9d";
 
 pub fn get_network(network_str: &str) -> &str {
     match network_str {
@@ -303,6 +305,12 @@ pub fn get_program_hash(url: Option<String>, program_id: Pubkey) -> anyhow::Resu
     let account_data = client.get_account_data(&program_buffer)?[offset..].to_vec();
     let program_hash = get_binary_hash(account_data);
     Ok(program_hash)
+}
+
+pub fn get_genesis_hash(url: Option<String>) -> anyhow::Result<String> {
+    let client = get_client(url);
+    let genesis_hash = client.get_genesis_hash()?;
+    Ok(genesis_hash.to_string())
 }
 
 pub fn build(
@@ -601,6 +609,12 @@ pub async fn verify_from_repo(
     temp_dir_opt: &mut Option<String>,
 ) -> anyhow::Result<()> {
     if remote {
+
+        let genesis_hash = get_genesis_hash(connection_url)?;
+        if genesis_hash != MAINNET_GENESIS_HASH {
+            return Err(anyhow!("Remote verification only works with mainnet. Please omit the --remote flag to verify locally."));
+        }
+
         println!("Sending verify command to remote machine");
         send_job_to_remote(
             &repo_url,
@@ -853,7 +867,7 @@ pub async fn send_job_to_remote(
     base_image: Option<String>,
     cargo_args: Vec<String>,
 ) -> anyhow::Result<()> {
-    let client = Client::new();
+    let client = Client::builder().timeout(Duration::from_secs(10)).build()?;
 
     // Send the POST request
     let response = client
@@ -876,12 +890,28 @@ pub async fn send_job_to_remote(
         .await?;
 
     if response.status().is_success() {
-        println!("Successfully sent job to remote");
+        println!("Successfully sent job to remote.");
+        Ok(())
+    }  else if response.status() == 409 {
+        let status_response:Value = serde_json::from_str(&response.text().await?)?;
+
+        if let Some(is_verified) = status_response["is_verified"].as_bool() {
+            if is_verified {
+                println!("Program {} has already been verified. ✅", program_id);
+                println!("On Chain Hash: {}", status_response["on_chain_hash"].as_str().unwrap_or(""));
+                println!("Executable Hash: {}", status_response["executable_hash"].as_str().unwrap_or(""));
+            } else {
+                println!("We have already processed this request.");
+                println!("Program {} has not been verified. ❌", program_id);
+            }
+        } else {
+            println!("We have already processed this request.");
+        }
         Ok(())
     } else {
         Err(anyhow!(
             "Encountered an error while attempting to send the job to remote : {:?}",
-            response.status()
+            response.text().await?
         ))?
     }
 }
