@@ -137,6 +137,18 @@ On-chain Program Hash: 7b37482dd6b2159932b5c2595bc6ce62cf6e587ae67f237c8152b802b
 Program hash matches ✅
 ```
 
+### Solend
+```
+solana-verify verify-from-repo -um --program-id So1endDq2YkqhipRh3WViPa8hdiSpxWy6z3Z6tMCpAo https://github.com/solendprotocol/solana-program-library --library-name solend_program -b ellipsislabs/solana:1.14.10 --bpf
+```
+
+Final Output:
+```
+Executable Program Hash from repo: f89a43677ab106d2e50d3c41b656d067b6142c02a2508caca1c11c0a963d3b17
+On-chain Program Hash: f89a43677ab106d2e50d3c41b656d067b6142c02a2508caca1c11c0a963d3b17
+Program hash matches ✅
+```
+
 ## Example Walkthrough
 
 After installing the CLI, we can test the program verification against the following immutable mainnet program: `2ZrriTQSVekoj414Ynysd48jyn4AX6ZF4TTJRqHfbJfn`
