@@ -716,7 +716,7 @@ pub async fn verify_from_repo(
                                 options
                             );
                             println!(
-                                "Please explicitly specify the target with the --package-name <name> option",
+                                "Please explicitly specify the target with the --library-name <name> option",
                             );
                             Err(anyhow::format_err!(
                                 "Failed to find unique Cargo.toml file in root directory"
