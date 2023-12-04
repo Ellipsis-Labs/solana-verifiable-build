@@ -361,7 +361,7 @@ pub fn build(
                     (version, digest)
                 } else {
                     println!("Unable to find backup docker image for Solana version {}.{}.{}", major, minor, patch);
-                    std::process::exit(1); 
+                    std::process::exit(1);
                 };
                 println!("Using backup docker image for Solana version {}.{}.{}", version.0, version.1, version.2);
                 solana_version = Some(format!("v{}.{}.{}", version.0, version.1, version.2));
@@ -439,27 +439,42 @@ pub fn build(
     // Set the container id so we can kill it later if the process is interrupted
     container_id_opt.replace(container_id.clone());
 
-    // First, we resolve the dependencies and cache them in the Docker container
-    // ARM processors running Linux have a bug where the build fails if the dependencies are not preloaded.
-    // Running the build without the pre-fetch will cause the container to run out of memory.
-    // This is a workaround for that issue.
-    std::process::Command::new("docker")
-        .args(["exec", &container_id])
-        .args([
-            "cargo",
-            "--config",
-            "net.git-fetch-with-cli=true",
-            "fetch",
-            "--locked",
-        ])
-        .stderr(Stdio::inherit())
-        .stdout(Stdio::inherit())
-        .output()?;
+    // Solana v1.17 uses Rust 1.73, which defaults to the sparse registry, making
+    // this fetch unnecessary, but requires us to omit the "frozen" argument
+    let locked_args = if major == 1 && minor < 17 {
+        // First, we resolve the dependencies and cache them in the Docker container
+        // ARM processors running Linux have a bug where the build fails if the dependencies are not preloaded.
+        // Running the build without the pre-fetch will cause the container to run out of memory.
+        // This is a workaround for that issue.
+        std::process::Command::new("docker")
+            .args(["exec", &container_id])
+            .args([
+                "cargo",
+                "--config",
+                "net.git-fetch-with-cli=true",
+                "fetch",
+                "--locked",
+            ])
+            .stderr(Stdio::inherit())
+            .stdout(Stdio::inherit())
+            .output()?;
+        println!("Finished fetching build dependencies");
 
-    println!("Finished fetching build dependencies");
+        ["--frozen", "--locked"].as_slice()
+    } else {
+        // To be totally safe, force the build to use the sparse registry
+        [
+            "--config",
+            "registries.crates-io.protocol=\"sparse\"",
+            "--locked"
+        ].as_slice()
+    };
+
     std::process::Command::new("docker")
         .args(["exec", "-w", &build_path, &container_id])
-        .args(["cargo", build_command, "--", "--locked", "--frozen"])
+        .args(["cargo", build_command])
+        .args(["--"])
+        .args(locked_args)
         .args(manifest_path_filter)
         .args(cargo_args)
         .stderr(Stdio::inherit())
