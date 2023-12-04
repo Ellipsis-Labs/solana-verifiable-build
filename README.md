@@ -31,7 +31,7 @@ cargo install solana-verify --version $VERSION
 
 If you are extra cautious and want to install a version of the binary that maps 1-to-1 with a specific commit, run the following. This example is installing version 0.2.6 from revision `13a1db2`:
 ```
-# Pulls the latest version from git. Change the argument to --rev to the desired commit
+# Pulls the source from git. Change the argument to --rev to the desired commit
 cargo install solana-verify --git https://github.com/Ellipsis-Labs/solana-verifiable-build --rev 13a1db2
 ```
 
