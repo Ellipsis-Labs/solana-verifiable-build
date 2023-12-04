@@ -19,7 +19,20 @@ curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 Finally, to install the Solana Verify cli, run the following in your shell:
 
 ```
+# Pulls the latest version from crates.io
 cargo install solana-verify
+```
+
+If you want to pin the version:
+```
+# Pulls the latest version from crates.io
+cargo install solana-verify --version $VERSION
+```
+
+If you are extra cautious and want to install a version of the binary that maps 1-to-1 with a specific commit. The following example is install version 0.2.6 pull from revision `13a1db2`:
+```
+# Pulls the latest version from git
+cargo install solana-verify --git https://github.com/Ellipsis-Labs/solana-verifiable-build --rev 13a1db2
 ```
 
 ## Building Verifiable Programs
