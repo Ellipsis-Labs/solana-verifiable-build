@@ -2,8 +2,6 @@ use anyhow::anyhow;
 use cargo_lock::Lockfile;
 use cargo_toml::Manifest;
 use clap::{Parser, Subcommand};
-use reqwest::Client;
-use serde_json::{json, Value};
 use signal_hook::{
     consts::{SIGINT, SIGTERM},
     iterator::Signals,
@@ -19,14 +17,16 @@ use std::{
     path::PathBuf,
     process::Stdio,
     sync::atomic::AtomicBool,
-    sync::{atomic::Ordering, Arc}, time::Duration,
+    sync::{atomic::Ordering, Arc},
 };
 use uuid::Uuid;
+pub mod api_client;
 pub mod image_config;
-
 use image_config::IMAGE_MAP;
 
-const MAINNET_GENESIS_HASH : &str = "5eykt4UsFv8P8NJdTREpY1vzqKqZKvdpKuc147dw2N9d";
+use crate::api_client::send_job_to_remote;
+
+const MAINNET_GENESIS_HASH: &str = "5eykt4UsFv8P8NJdTREpY1vzqKqZKvdpKuc147dw2N9d";
 
 pub fn get_network(network_str: &str) -> &str {
     match network_str {
@@ -466,8 +466,9 @@ pub fn build(
         [
             "--config",
             "registries.crates-io.protocol=\"sparse\"",
-            "--locked"
-        ].as_slice()
+            "--locked",
+        ]
+        .as_slice()
     };
 
     std::process::Command::new("docker")
@@ -624,13 +625,12 @@ pub async fn verify_from_repo(
     temp_dir_opt: &mut Option<String>,
 ) -> anyhow::Result<()> {
     if remote {
-
         let genesis_hash = get_genesis_hash(connection_url)?;
         if genesis_hash != MAINNET_GENESIS_HASH {
             return Err(anyhow!("Remote verification only works with mainnet. Please omit the --remote flag to verify locally."));
         }
 
-        println!("Sending verify command to remote machine");
+        println!("Sending verify command to remote machine...");
         send_job_to_remote(
             &repo_url,
             &commit_hash,
@@ -869,64 +869,4 @@ pub fn get_pkg_name_from_cargo_toml(cargo_toml_file: &str) -> Option<String> {
     let manifest = Manifest::from_path(cargo_toml_file).ok()?;
     let pkg = manifest.package?;
     Some(pkg.name)
-}
-
-#[allow(clippy::too_many_arguments)]
-pub async fn send_job_to_remote(
-    repo_url: &str,
-    commit_hash: &Option<String>,
-    program_id: &Pubkey,
-    library_name: &Option<String>,
-    bpf_flag: bool,
-    relative_mount_path: String,
-    base_image: Option<String>,
-    cargo_args: Vec<String>,
-) -> anyhow::Result<()> {
-    let client = Client::builder().timeout(Duration::from_secs(10)).build()?;
-
-    // Send the POST request
-    let response = client
-        .post("https://verify.osec.io/verify")
-        .json(&json!({
-            "repository": repo_url,
-            "commit_hash": commit_hash,
-            "program_id": program_id.to_string(),
-            "lib_name": library_name,
-            "bpf_flag": bpf_flag,
-            "mount_path":  if relative_mount_path.is_empty() {
-                None
-            } else {
-                Some(relative_mount_path)
-            },
-            "base_image": base_image,
-            "cargo_args": cargo_args,
-        }))
-        .send()
-        .await?;
-
-    if response.status().is_success() {
-        println!("Successfully sent job to remote.");
-        Ok(())
-    }  else if response.status() == 409 {
-        let status_response:Value = serde_json::from_str(&response.text().await?)?;
-
-        if let Some(is_verified) = status_response["is_verified"].as_bool() {
-            if is_verified {
-                println!("Program {} has already been verified. ✅", program_id);
-                println!("On Chain Hash: {}", status_response["on_chain_hash"].as_str().unwrap_or(""));
-                println!("Executable Hash: {}", status_response["executable_hash"].as_str().unwrap_or(""));
-            } else {
-                println!("We have already processed this request.");
-                println!("Program {} has not been verified. ❌", program_id);
-            }
-        } else {
-            println!("We have already processed this request.");
-        }
-        Ok(())
-    } else {
-        Err(anyhow!(
-            "Encountered an error while attempting to send the job to remote : {:?}",
-            response.text().await?
-        ))?
-    }
 }
