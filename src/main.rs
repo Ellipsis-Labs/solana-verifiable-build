@@ -346,8 +346,7 @@ pub fn build(
             // Use this for backwards compatibility with anchor verified builds
             solana_version = Some("v1.13.5".to_string());
             "projectserum/build@sha256:75b75eab447ebcca1f471c98583d9b5d82c4be122c470852a022afcf9c98bead".to_string()
-        } else {
-            if let Some(digest) = IMAGE_MAP.get(&(major, minor, patch)) {
+        } else if let Some(digest) = IMAGE_MAP.get(&(major, minor, patch)) {
                 println!("Found docker image for Solana version {}.{}.{}", major, minor, patch);
                 solana_version = Some(format!("v{}.{}.{}", major, minor, patch));
                 format!("ellipsislabs/solana@{}", digest)
@@ -367,7 +366,6 @@ pub fn build(
                 solana_version = Some(format!("v{}.{}.{}", version.0, version.1, version.2));
                 format!("ellipsislabs/solana@{}", digest)
             }
-        }
     });
 
     let mut manifest_path = None;
