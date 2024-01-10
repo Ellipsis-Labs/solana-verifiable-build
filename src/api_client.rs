@@ -14,6 +14,9 @@ static DONE: Emoji<'_, '_> = Emoji("✅", "");
 static WAITING: Emoji<'_, '_> = Emoji("⏳", "");
 static ERROR: Emoji<'_, '_> = Emoji("❌", "X");
 
+// URL for the remote server
+pub const REMOTE_SERVER_URL: &str = "https://verify.osec.io/verify_async";
+
 fn loading_animation(receiver: Receiver<bool>) {
     let started = Instant::now();
     let spinner_style =
@@ -74,7 +77,7 @@ pub async fn send_job_to_remote(
     let handle = thread::spawn(move || loading_animation(receiver));
     // Send the POST request
     let response = client
-        .post("http://localhost:3000/verify_sync")
+        .post(REMOTE_SERVER_URL)
         .json(&json!({
             "repository": repo_url,
             "commit_hash": commit_hash,
@@ -96,6 +99,7 @@ pub async fn send_job_to_remote(
         sender.send(true)?;
         handle.join().unwrap();
         let status_response: Value = serde_json::from_str(&response.text().await?)?;
+
         if let Some(is_verified) = status_response["is_verified"].as_bool() {
             if is_verified {
                 println!("Program {} has already been verified. {}", program_id, DONE);
@@ -111,9 +115,16 @@ pub async fn send_job_to_remote(
                 println!("We have already processed this request.");
                 println!("Program {} has not been verified. {}", program_id, ERROR);
             }
+        } else if status_response["status"] == "error" {
+            println!("Error encountered while processing request.");
+            println!(
+                "Error message: {}",
+                status_response["error"].as_str().unwrap_or("")
+            );
         } else {
             println!("We have already processed this request.");
         }
+
         Ok(())
     } else {
         sender.send(false)?;
