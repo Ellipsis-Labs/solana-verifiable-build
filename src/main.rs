@@ -136,7 +136,7 @@ enum SubCommand {
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     // Handle SIGTERM and SIGINT gracefully by stopping the docker container
-    let mut signals = Signals::new(&[SIGTERM, SIGINT])?;
+    let mut signals = Signals::new([SIGTERM, SIGINT])?;
     let mut container_id: Option<String> = None;
     let mut temp_dir: Option<String> = None;
     let caught_signal = Arc::new(AtomicBool::new(false));
@@ -231,7 +231,7 @@ async fn main() -> anyhow::Result<()> {
         if let Some(container_id) = container_id.clone().take() {
             println!("Stopping container {}", container_id);
             if std::process::Command::new("docker")
-                .args(&["kill", &container_id])
+                .args(["kill", &container_id])
                 .output()
                 .is_err()
             {
@@ -243,7 +243,7 @@ async fn main() -> anyhow::Result<()> {
         if let Some(temp_dir) = temp_dir.clone().take() {
             println!("Removing temp dir {}", temp_dir);
             if std::process::Command::new("rm")
-                .args(&["-rf", &temp_dir])
+                .args(["-rf", &temp_dir])
                 .output()
                 .is_err()
             {
@@ -415,7 +415,7 @@ pub fn build(
     let manifest_path_filter = manifest_path
         .clone()
         .map(|m| vec!["--manifest-path".to_string(), format!("{}/{}", workdir, m)])
-        .unwrap_or_else(|| vec![]);
+        .unwrap_or_else(Vec::new);
 
     if manifest_path.is_some() {
         println!(
@@ -481,10 +481,8 @@ pub fn build(
         .output()?;
 
     println!("Finished building program");
-    println!(
-        "Program Solana version: {}",
-        format!("v{}.{}.{}", major, minor, patch)
-    );
+    println!("Program Solana version: v{}.{}.{}", major, minor, patch);
+
     if let Some(solana_version) = solana_version {
         println!("Docker image Solana version: {}", solana_version);
     }
@@ -503,7 +501,7 @@ pub fn build(
         println!("{}", executable_hash);
     }
     std::process::Command::new("docker")
-        .args(&["kill", &container_id])
+        .args(["kill", &container_id])
         .output()?;
     Ok(())
 }
@@ -550,8 +548,7 @@ pub fn verify_from_image(
             std::env::current_dir()?
                 .as_os_str()
                 .to_str()
-                .ok_or_else(|| anyhow::Error::msg("Invalid path string"))?
-                .to_string(),
+                .ok_or_else(|| anyhow::Error::msg("Invalid path string"))?,
             uuid.clone()
         )
     } else {
@@ -659,8 +656,7 @@ pub async fn verify_from_repo(
             std::env::current_dir()?
                 .as_os_str()
                 .to_str()
-                .ok_or_else(|| anyhow::Error::msg("Invalid path string"))?
-                .to_string(),
+                .ok_or_else(|| anyhow::Error::msg("Invalid path string"))?,
             uuid.clone()
         )
     } else {
@@ -700,8 +696,7 @@ pub async fn verify_from_repo(
 
     let library_name = match library_name_opt {
         Some(p) => p,
-        None => {
-            let name =
+        None => { 
                 std::process::Command::new("find")
                     .args([mount_path.to_str().unwrap(), "-name", "Cargo.toml"])
                     .output()
@@ -737,8 +732,7 @@ pub async fn verify_from_repo(
                         } else {
                             Ok(options[0].clone())
                         }
-                    })?;
-            name
+                    })?
         }
     };
     println!("Verifying program: {}", library_name);
@@ -837,7 +831,7 @@ pub fn get_pkg_version_from_cargo_lock(
     let res = lockfile
         .packages
         .iter()
-        .filter(|pkg| pkg.name.to_string() == package_name.to_string())
+        .filter(|pkg| pkg.name.to_string() == *package_name)
         .filter_map(|pkg| {
             let version = pkg.version.clone().to_string();
             let version_parts: Vec<&str> = version.split(".").collect();
@@ -847,7 +841,7 @@ pub fn get_pkg_version_from_cargo_lock(
                 let patch = version_parts[2].parse::<u32>().unwrap_or(0);
                 return Some((major, minor, patch));
             }
-            return None;
+            None
         })
         .next()
         .ok_or_else(|| anyhow!("Failed to parse solana-program version from Cargo.lock"))?;
