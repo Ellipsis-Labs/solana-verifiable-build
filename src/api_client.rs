@@ -15,7 +15,7 @@ static WAITING: Emoji<'_, '_> = Emoji("⏳", "");
 static ERROR: Emoji<'_, '_> = Emoji("❌", "X");
 
 // URL for the remote server
-pub const REMOTE_SERVER_URL: &str = "https://verify.osec.io/verify_async";
+pub const REMOTE_SERVER_URL: &str = "https://verify.osec.io/verify_sync";
 
 fn loading_animation(receiver: Receiver<bool>) {
     let started = Instant::now();
@@ -68,7 +68,7 @@ pub async fn send_job_to_remote(
     cargo_args: Vec<String>,
 ) -> anyhow::Result<()> {
     let client = Client::builder()
-        .timeout(Duration::from_secs(1800))
+        .timeout(Duration::from_secs(18000))
         .build()?;
 
     // Create a channel for communication between threads
