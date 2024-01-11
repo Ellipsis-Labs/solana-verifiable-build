@@ -112,7 +112,7 @@ pub async fn send_job_to_remote(
                     status_response["executable_hash"].as_str().unwrap_or("")
                 );
             } else {
-                println!("We have already processed this request.");
+                println!("This request has already been processed.");
                 println!("Program {} has not been verified. {}", program_id, ERROR);
             }
         } else if status_response["status"] == "error" {
@@ -122,7 +122,7 @@ pub async fn send_job_to_remote(
                 status_response["error"].as_str().unwrap_or("")
             );
         } else {
-            println!("We have already processed this request.");
+            println!("This request has already been processed.");
         }
 
         Ok(())
