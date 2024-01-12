@@ -22,6 +22,7 @@ use std::{
 use uuid::Uuid;
 pub mod api_client;
 pub mod image_config;
+pub mod api_models;
 use image_config::IMAGE_MAP;
 
 use crate::api_client::send_job_to_remote;

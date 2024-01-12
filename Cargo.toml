@@ -26,6 +26,7 @@ lazy_static = "1.4.0"
 indicatif = "0.17.7"
 crossbeam-channel = "0.5.11"
 console = "0.15.7"
+serde = { version = "1.0.166", features = ["derive"] }
 
 [dependencies.uuid]
 version = "1.2.2"
