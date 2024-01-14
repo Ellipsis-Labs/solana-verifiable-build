@@ -3,12 +3,14 @@ use console::Emoji;
 use crossbeam_channel::{unbounded, Receiver};
 use indicatif::{HumanDuration, ProgressBar, ProgressStyle};
 use reqwest::Client;
-use serde_json::{json, Value};
+use serde_json::json;
 use solana_sdk::pubkey::Pubkey;
 use std::thread;
 use std::time::{Duration, Instant};
 
-use crate::api_models::{JobResponse, JobStatus, JobVerificationResponse, VerifyResponse};
+use crate::api_models::{
+    ErrorResponse, JobResponse, JobStatus, JobVerificationResponse, VerifyResponse,
+};
 
 // Emoji constants
 static DONE: Emoji<'_, '_> = Emoji("✅", "");
@@ -104,7 +106,6 @@ pub async fn send_job_to_remote(
         let (sender, receiver) = unbounded();
 
         let handle = thread::spawn(move || loading_animation(receiver));
-
         // Poll the server for status
         loop {
             let status = check_job_status(&client, &status_response.request_id).await?;
@@ -149,32 +150,8 @@ pub async fn send_job_to_remote(
 
         Ok(())
     } else if response.status() == 409 {
-        let status_response: Value = serde_json::from_str(&response.text().await?)?;
-
-        if let Some(is_verified) = status_response["is_verified"].as_bool() {
-            if is_verified {
-                println!("Program {} has already been verified. {}", program_id, DONE);
-                println!(
-                    "On Chain Hash: {}",
-                    status_response["on_chain_hash"].as_str().unwrap_or("")
-                );
-                println!(
-                    "Executable Hash: {}",
-                    status_response["executable_hash"].as_str().unwrap_or("")
-                );
-            } else {
-                println!("This request has already been processed.");
-                println!("Program {} has not been verified. {}", program_id, ERROR);
-            }
-        } else if status_response["status"] == "error" {
-            println!(
-                "Error message: {}",
-                status_response["error"].as_str().unwrap_or("")
-            );
-        } else {
-            println!("This request has already been processed.");
-        }
-
+        let response = response.json::<ErrorResponse>().await?;
+        eprintln!("Error: {}", response.error.as_str());
         Ok(())
     } else {
         eprintln!("Encountered an error while attempting to send the job to remote");

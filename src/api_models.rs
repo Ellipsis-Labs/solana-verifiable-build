@@ -9,7 +9,7 @@ pub enum Status {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct VerifyResponse {
-    pub status: Status,
+    pub status: JobStatus,
     pub request_id: String,
     pub message: String,
 }
