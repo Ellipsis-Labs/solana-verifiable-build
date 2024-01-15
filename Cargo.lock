@@ -3564,7 +3564,6 @@ dependencies = [
  "cargo-lock",
  "cargo_toml",
  "clap 4.1.4",
- "console",
  "crossbeam-channel",
  "hex 0.3.2",
  "indicatif 0.17.7",

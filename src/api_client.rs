@@ -1,5 +1,4 @@
 use anyhow::anyhow;
-use console::Emoji;
 use crossbeam_channel::{unbounded, Receiver};
 use indicatif::{HumanDuration, ProgressBar, ProgressStyle};
 use reqwest::Client;
@@ -11,11 +10,6 @@ use std::time::{Duration, Instant};
 use crate::api_models::{
     ErrorResponse, JobResponse, JobStatus, JobVerificationResponse, VerifyResponse,
 };
-
-// Emoji constants
-static DONE: Emoji<'_, '_> = Emoji("✅", "");
-static WAITING: Emoji<'_, '_> = Emoji("⏳", "");
-static ERROR: Emoji<'_, '_> = Emoji("❌", "X");
 
 // URL for the remote server
 pub const REMOTE_SERVER_URL: &str = "https://verify.osec.io";
@@ -29,26 +23,18 @@ fn loading_animation(receiver: Receiver<bool>) {
 
     let pb = ProgressBar::new_spinner();
     pb.set_style(spinner_style);
-    pb.set_message(format!(
-        "Request sent. Awaiting server response. This may take a moment... {}",
-        WAITING
-    ));
+    pb.set_message("Request sent. Awaiting server response. This may take a moment... ⏳");
     loop {
         match receiver.try_recv() {
             Ok(result) => {
                 if result {
                     pb.finish_with_message(format!(
-                        "{} Process completed. (Done in {})\n",
-                        DONE,
+                        "✅ Process completed. (Done in {})\n",
                         HumanDuration(started.elapsed())
                     ));
                 } else {
-                    pb.finish_with_message(format!("{} Request processing failed.", ERROR));
-                    println!(
-                        "{} Time elapsed : {}",
-                        ERROR,
-                        HumanDuration(started.elapsed())
-                    );
+                    pb.finish_with_message("❌ Request processing failed.");
+                    println!("❌ Time elapsed : {}", HumanDuration(started.elapsed()));
                 }
                 break;
             }
@@ -99,8 +85,8 @@ pub async fn send_job_to_remote(
 
     if response.status().is_success() {
         let status_response: VerifyResponse = response.json().await?;
-        println!("Verification request sent. {}", DONE);
-        println!("Verification in progress... {}", WAITING);
+        println!("Verification request sent. ✅");
+        println!("Verification in progress... ⏳");
         // Span new thread for polling the server for status
         // Create a channel for communication between threads
         let (sender, receiver) = unbounded();
@@ -117,10 +103,7 @@ pub async fn send_job_to_remote(
                     let _ = sender.send(true);
                     handle.join().unwrap();
                     let status_response = status.respose.unwrap();
-                    println!(
-                        "Program {} has been successfully verified. {}",
-                        program_id, DONE
-                    );
+                    println!("Program {} has been successfully verified. ✅", program_id);
                     println!("\nThe provided GitHub build matches the on-chain hash:");
                     println!("On Chain Hash: {}", status_response.on_chain_hash.as_str());
                     println!(
@@ -135,14 +118,14 @@ pub async fn send_job_to_remote(
 
                     handle.join().unwrap();
                     let status_response: JobVerificationResponse = status.respose.unwrap();
-                    println!("Program {} has not been verified. {}", program_id, ERROR);
+                    println!("Program {} has not been verified. ❌", program_id);
                     eprintln!("Error message: {}", status_response.message.as_str());
                     break;
                 }
                 JobStatus::Unknown => {
                     let _ = sender.send(false);
                     handle.join().unwrap();
-                    println!("Program {} has not been verified. {}", program_id, ERROR);
+                    println!("Program {} has not been verified. ❌", program_id);
                     break;
                 }
             }
