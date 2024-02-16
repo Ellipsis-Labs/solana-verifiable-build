@@ -429,7 +429,7 @@ pub fn build(
     // change directory to program/build dir
     let mount_params = format!("{}:{}", mount_path, workdir);
     let container_id = std::process::Command::new("docker")
-        .args(["run", "--rm", "-v", &mount_params, "-dit", &image, "bash"])
+        .args(["run", "--rm", "-v", &mount_params, "-dit","--memory=4g","--cpus=2", &image, "bash"])
         .stderr(Stdio::inherit())
         .output()
         .map_err(|e| anyhow::format_err!("Docker build failed: {}", e.to_string()))
