@@ -2,8 +2,6 @@ use anyhow::anyhow;
 use cargo_lock::Lockfile;
 use cargo_toml::Manifest;
 use clap::{Parser, Subcommand};
-use reqwest::Client;
-use serde_json::{json, Value};
 use signal_hook::{
     consts::{SIGINT, SIGTERM},
     iterator::Signals,
@@ -19,14 +17,17 @@ use std::{
     path::PathBuf,
     process::Stdio,
     sync::atomic::AtomicBool,
-    sync::{atomic::Ordering, Arc}, time::Duration,
+    sync::{atomic::Ordering, Arc},
 };
 use uuid::Uuid;
+pub mod api_client;
 pub mod image_config;
-
+pub mod api_models;
 use image_config::IMAGE_MAP;
 
-const MAINNET_GENESIS_HASH : &str = "5eykt4UsFv8P8NJdTREpY1vzqKqZKvdpKuc147dw2N9d";
+use crate::api_client::send_job_to_remote;
+
+const MAINNET_GENESIS_HASH: &str = "5eykt4UsFv8P8NJdTREpY1vzqKqZKvdpKuc147dw2N9d";
 
 pub fn get_network(network_str: &str) -> &str {
     match network_str {
@@ -136,7 +137,7 @@ enum SubCommand {
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     // Handle SIGTERM and SIGINT gracefully by stopping the docker container
-    let mut signals = Signals::new(&[SIGTERM, SIGINT])?;
+    let mut signals = Signals::new([SIGTERM, SIGINT])?;
     let mut container_id: Option<String> = None;
     let mut temp_dir: Option<String> = None;
     let caught_signal = Arc::new(AtomicBool::new(false));
@@ -231,7 +232,7 @@ async fn main() -> anyhow::Result<()> {
         if let Some(container_id) = container_id.clone().take() {
             println!("Stopping container {}", container_id);
             if std::process::Command::new("docker")
-                .args(&["kill", &container_id])
+                .args(["kill", &container_id])
                 .output()
                 .is_err()
             {
@@ -243,7 +244,7 @@ async fn main() -> anyhow::Result<()> {
         if let Some(temp_dir) = temp_dir.clone().take() {
             println!("Removing temp dir {}", temp_dir);
             if std::process::Command::new("rm")
-                .args(&["-rf", &temp_dir])
+                .args(["-rf", &temp_dir])
                 .output()
                 .is_err()
             {
@@ -346,8 +347,7 @@ pub fn build(
             // Use this for backwards compatibility with anchor verified builds
             solana_version = Some("v1.13.5".to_string());
             "projectserum/build@sha256:75b75eab447ebcca1f471c98583d9b5d82c4be122c470852a022afcf9c98bead".to_string()
-        } else {
-            if let Some(digest) = IMAGE_MAP.get(&(major, minor, patch)) {
+        } else if let Some(digest) = IMAGE_MAP.get(&(major, minor, patch)) {
                 println!("Found docker image for Solana version {}.{}.{}", major, minor, patch);
                 solana_version = Some(format!("v{}.{}.{}", major, minor, patch));
                 format!("ellipsislabs/solana@{}", digest)
@@ -367,7 +367,6 @@ pub fn build(
                 solana_version = Some(format!("v{}.{}.{}", version.0, version.1, version.2));
                 format!("ellipsislabs/solana@{}", digest)
             }
-        }
     });
 
     let mut manifest_path = None;
@@ -417,7 +416,7 @@ pub fn build(
     let manifest_path_filter = manifest_path
         .clone()
         .map(|m| vec!["--manifest-path".to_string(), format!("{}/{}", workdir, m)])
-        .unwrap_or_else(|| vec![]);
+        .unwrap_or_else(Vec::new);
 
     if manifest_path.is_some() {
         println!(
@@ -466,8 +465,9 @@ pub fn build(
         [
             "--config",
             "registries.crates-io.protocol=\"sparse\"",
-            "--locked"
-        ].as_slice()
+            "--locked",
+        ]
+        .as_slice()
     };
 
     std::process::Command::new("docker")
@@ -482,10 +482,8 @@ pub fn build(
         .output()?;
 
     println!("Finished building program");
-    println!(
-        "Program Solana version: {}",
-        format!("v{}.{}.{}", major, minor, patch)
-    );
+    println!("Program Solana version: v{}.{}.{}", major, minor, patch);
+
     if let Some(solana_version) = solana_version {
         println!("Docker image Solana version: {}", solana_version);
     }
@@ -504,7 +502,7 @@ pub fn build(
         println!("{}", executable_hash);
     }
     std::process::Command::new("docker")
-        .args(&["kill", &container_id])
+        .args(["kill", &container_id])
         .output()?;
     Ok(())
 }
@@ -551,8 +549,7 @@ pub fn verify_from_image(
             std::env::current_dir()?
                 .as_os_str()
                 .to_str()
-                .ok_or_else(|| anyhow::Error::msg("Invalid path string"))?
-                .to_string(),
+                .ok_or_else(|| anyhow::Error::msg("Invalid path string"))?,
             uuid.clone()
         )
     } else {
@@ -624,13 +621,12 @@ pub async fn verify_from_repo(
     temp_dir_opt: &mut Option<String>,
 ) -> anyhow::Result<()> {
     if remote {
-
         let genesis_hash = get_genesis_hash(connection_url)?;
         if genesis_hash != MAINNET_GENESIS_HASH {
             return Err(anyhow!("Remote verification only works with mainnet. Please omit the --remote flag to verify locally."));
         }
 
-        println!("Sending verify command to remote machine");
+        println!("Sending verify command to remote machine...");
         send_job_to_remote(
             &repo_url,
             &commit_hash,
@@ -661,8 +657,7 @@ pub async fn verify_from_repo(
             std::env::current_dir()?
                 .as_os_str()
                 .to_str()
-                .ok_or_else(|| anyhow::Error::msg("Invalid path string"))?
-                .to_string(),
+                .ok_or_else(|| anyhow::Error::msg("Invalid path string"))?,
             uuid.clone()
         )
     } else {
@@ -702,8 +697,7 @@ pub async fn verify_from_repo(
 
     let library_name = match library_name_opt {
         Some(p) => p,
-        None => {
-            let name =
+        None => { 
                 std::process::Command::new("find")
                     .args([mount_path.to_str().unwrap(), "-name", "Cargo.toml"])
                     .output()
@@ -739,8 +733,7 @@ pub async fn verify_from_repo(
                         } else {
                             Ok(options[0].clone())
                         }
-                    })?;
-            name
+                    })?
         }
     };
     println!("Verifying program: {}", library_name);
@@ -839,7 +832,7 @@ pub fn get_pkg_version_from_cargo_lock(
     let res = lockfile
         .packages
         .iter()
-        .filter(|pkg| pkg.name.to_string() == package_name.to_string())
+        .filter(|pkg| pkg.name.to_string() == *package_name)
         .filter_map(|pkg| {
             let version = pkg.version.clone().to_string();
             let version_parts: Vec<&str> = version.split(".").collect();
@@ -849,7 +842,7 @@ pub fn get_pkg_version_from_cargo_lock(
                 let patch = version_parts[2].parse::<u32>().unwrap_or(0);
                 return Some((major, minor, patch));
             }
-            return None;
+            None
         })
         .next()
         .ok_or_else(|| anyhow!("Failed to parse solana-program version from Cargo.lock"))?;
@@ -869,64 +862,4 @@ pub fn get_pkg_name_from_cargo_toml(cargo_toml_file: &str) -> Option<String> {
     let manifest = Manifest::from_path(cargo_toml_file).ok()?;
     let pkg = manifest.package?;
     Some(pkg.name)
-}
-
-#[allow(clippy::too_many_arguments)]
-pub async fn send_job_to_remote(
-    repo_url: &str,
-    commit_hash: &Option<String>,
-    program_id: &Pubkey,
-    library_name: &Option<String>,
-    bpf_flag: bool,
-    relative_mount_path: String,
-    base_image: Option<String>,
-    cargo_args: Vec<String>,
-) -> anyhow::Result<()> {
-    let client = Client::builder().timeout(Duration::from_secs(10)).build()?;
-
-    // Send the POST request
-    let response = client
-        .post("https://verify.osec.io/verify")
-        .json(&json!({
-            "repository": repo_url,
-            "commit_hash": commit_hash,
-            "program_id": program_id.to_string(),
-            "lib_name": library_name,
-            "bpf_flag": bpf_flag,
-            "mount_path":  if relative_mount_path.is_empty() {
-                None
-            } else {
-                Some(relative_mount_path)
-            },
-            "base_image": base_image,
-            "cargo_args": cargo_args,
-        }))
-        .send()
-        .await?;
-
-    if response.status().is_success() {
-        println!("Successfully sent job to remote.");
-        Ok(())
-    }  else if response.status() == 409 {
-        let status_response:Value = serde_json::from_str(&response.text().await?)?;
-
-        if let Some(is_verified) = status_response["is_verified"].as_bool() {
-            if is_verified {
-                println!("Program {} has already been verified. ✅", program_id);
-                println!("On Chain Hash: {}", status_response["on_chain_hash"].as_str().unwrap_or(""));
-                println!("Executable Hash: {}", status_response["executable_hash"].as_str().unwrap_or(""));
-            } else {
-                println!("We have already processed this request.");
-                println!("Program {} has not been verified. ❌", program_id);
-            }
-        } else {
-            println!("We have already processed this request.");
-        }
-        Ok(())
-    } else {
-        Err(anyhow!(
-            "Encountered an error while attempting to send the job to remote : {:?}",
-            response.text().await?
-        ))?
-    }
 }

@@ -1,6 +1,6 @@
 [package]
 name = "solana-verify"
-version = "0.2.7"
+version = "0.2.8"
 edition = "2021"
 description = "A CLI tool for building verifiable Solana programs"
 license = "MIT"
@@ -23,6 +23,9 @@ signal-hook = "0.3.15"
 reqwest = "0.11.18"
 cargo-lock = "9.0.0"
 lazy_static = "1.4.0"
+indicatif = "0.17.7"
+crossbeam-channel = "0.5.11"
+serde = { version = "1.0.166", features = ["derive"] }
 
 [dependencies.uuid]
 version = "1.2.2"
