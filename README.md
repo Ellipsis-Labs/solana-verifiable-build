@@ -24,12 +24,14 @@ cargo install solana-verify
 ```
 
 If you want to pin the version:
+
 ```
 # Pulls the latest version from crates.io
 cargo install solana-verify --version $VERSION
 ```
 
 If you are extra cautious and want to install a version of the binary that maps 1-to-1 with a specific commit, run the following. This example is installing version 0.2.6 from revision `13a1db2`:
+
 ```
 # Pulls the source from git. Change the argument to --rev to the desired commit
 cargo install solana-verify --git https://github.com/Ellipsis-Labs/solana-verifiable-build --rev 13a1db2
@@ -139,11 +141,13 @@ Program hash matches ✅
 ```
 
 ### Marginfi V2
+
 ```
 solana-verify verify-from-repo -um --program-id MFv2hWf31Z9kbCa1snEPYctwafyhdvnV7FZnsebVacA https://github.com/mrgnlabs/marginfi-v2 --library-name marginfi -- --features mainnet-beta
 ```
 
 Final Output:
+
 ```
 Executable Program Hash from repo: 7b37482dd6b2159932b5c2595bc6ce62cf6e587ae67f237c8152b802bf7d7bb8
 On-chain Program Hash: 7b37482dd6b2159932b5c2595bc6ce62cf6e587ae67f237c8152b802bf7d7bb8
@@ -151,11 +155,13 @@ Program hash matches ✅
 ```
 
 ### Solend
+
 ```
 solana-verify verify-from-repo -um --program-id So1endDq2YkqhipRh3WViPa8hdiSpxWy6z3Z6tMCpAo https://github.com/solendprotocol/solana-program-library --library-name solend_program -b ellipsislabs/solana:1.14.10 --bpf
 ```
 
 Final Output:
+
 ```
 Executable Program Hash from repo: f89a43677ab106d2e50d3c41b656d067b6142c02a2508caca1c11c0a963d3b17
 On-chain Program Hash: f89a43677ab106d2e50d3c41b656d067b6142c02a2508caca1c11c0a963d3b17
@@ -229,12 +235,12 @@ This will return the hash of the stripped executable, which should match the has
 
 ```
 
-### To send verification to Osec API
+### To send verification to OtterSec API
 
 ```bash
 solana-verify verify-from-repo --remote -um --program-id PhoeNiXZ8ByJGLkxNfZRnkUfjvmuYqLR89jjFHGqdXY https://github.com/Ellipsis-Labs/phoenix-v1
 ```
 
-- This verification will be sent to the Osec API and will be available at [https://verify.osec.io/status](https://verify.osec.io/status/PhoeNiXZ8ByJGLkxNfZRnkUfjvmuYqLR89jjFHGqdXY)
+- This verification will be sent to the OtterSec API and will be available at [https://verify.osec.io/status](https://verify.osec.io/status/PhoeNiXZ8ByJGLkxNfZRnkUfjvmuYqLR89jjFHGqdXY)
 
-> Note: The `--remote` flag is required to send the verification to the Osec API. The `--remote` flag is not required for local verification. And this will take 5-10 minutes to complete.
+> Note: The `--remote` flag is required to send the verification to the OtterSec API. The `--remote` flag is not required for local verification. And this will take 5-10 minutes to complete.
