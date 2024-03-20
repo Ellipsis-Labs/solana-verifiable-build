@@ -314,6 +314,21 @@ pub fn get_genesis_hash(url: Option<String>) -> anyhow::Result<String> {
     Ok(genesis_hash.to_string())
 }
 
+
+pub fn get_docker_resource_limits() -> Option<(String, String)> {
+    let memory = std::env::var("SVB_DOCKER_MEMORY_LIMIT").ok();
+    let cpus = std::env::var("SVB_DOCKER_CPU_LIMIT").ok();
+    if memory.is_some() || cpus.is_some() {
+        println!("Using docker resource limits: memory: {:?}, cpus: {:?}", memory, cpus);
+    } else {
+        // Print message to user that they can set these environment variables to limit docker resources
+        println!("No Docker resource limits are set.");
+        println!("You can set the SVB_DOCKER_MEMORY_LIMIT and SVB_DOCKER_CPU_LIMIT environment variables to limit Docker resources.");
+        println!("For example: SVB_DOCKER_MEMORY_LIMIT=2g SVB_DOCKER_CPU_LIMIT=2.");
+    }
+    memory.zip(cpus)
+}
+
 pub fn build(
     mount_directory: Option<String>,
     library_name: Option<String>,
@@ -428,12 +443,22 @@ pub fn build(
 
     // change directory to program/build dir
     let mount_params = format!("{}:{}", mount_path, workdir);
-    let container_id = std::process::Command::new("docker")
-        .args(["run", "--rm", "-v", &mount_params, "-dit", &image, "bash"])
-        .stderr(Stdio::inherit())
-        .output()
-        .map_err(|e| anyhow::format_err!("Docker build failed: {}", e.to_string()))
-        .and_then(|output| parse_output(output.stdout))?;
+    let container_id = {
+        let mut cmd = std::process::Command::new("docker");
+            cmd.args(["run", "--rm", "-v", &mount_params, "-dit"]);
+            cmd.stderr(Stdio::inherit());
+
+        if let Some((memory_limit, cpu_limit)) = get_docker_resource_limits() {
+            cmd.arg("--memory").arg(memory_limit).arg("--cpus").arg(cpu_limit);
+        }
+
+        let output = cmd
+            .args([&image, "bash"])
+            .output()
+            .map_err(|e| anyhow!("Docker build failed: {}", e.to_string()))?;
+
+        parse_output(output.stdout)?
+    };
 
     // Set the container id so we can kill it later if the process is interrupted
     container_id_opt.replace(container_id.clone());
@@ -532,11 +557,22 @@ pub fn verify_from_image(
 
     println!("Workdir: {}", workdir);
 
-    let container_id = std::process::Command::new("docker")
-        .args(["run", "--rm", "-dit", image.as_str()])
-        .output()
-        .map_err(|e| anyhow::format_err!("Failed to run image {}", e.to_string()))
-        .and_then(|output| parse_output(output.stdout))?;
+
+    let container_id = {
+        let mut cmd = std::process::Command::new("docker");
+            cmd.args(["run", "--rm", "-dit"]);
+            cmd.stderr(Stdio::inherit());
+
+        if let Some((memory_limit, cpu_limit)) = get_docker_resource_limits() {
+            cmd.arg("--memory").arg(memory_limit).arg("--cpus").arg(cpu_limit);
+        }
+
+        let output = cmd
+            .args([&image])
+            .output()
+            .map_err(|e| anyhow!("Docker build failed: {}", e.to_string()))?;
+        parse_output(output.stdout)?
+    };
 
     container_id_opt.replace(container_id.clone());
 
