@@ -86,7 +86,7 @@ for release in tags:
 
     if rust_version not in RUST_DOCKER_IMAGESHA_MAP:
         response = requests.get(
-            "https://hub.docker.com/v2/namespaces/library/repositories/rust/tags/1.68.0-bullseye"
+            f"https://hub.docker.com/v2/namespaces/library/repositories/rust/tags/{rust_version}-bullseye"
         )
 
         if response.status_code == 200:
