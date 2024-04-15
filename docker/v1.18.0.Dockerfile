@@ -1,4 +1,4 @@
-FROM --platform=linux/amd64 rust@sha256:b7f381685785bb4192e53995d6ad1dec70954e682e18e06a4c8c02011ab2f32e
+FROM --platform=linux/amd64 rust@sha256:79892de83d1af9109c47a4566a24a0b240348bb8c088f1bccc52645c4c70ec39
 
 RUN apt-get update && apt-get install -qy git gnutls-bin
 RUN sh -c "$(curl -sSfL https://release.solana.com/v1.18.0/install)"

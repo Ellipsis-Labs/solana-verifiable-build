@@ -13,20 +13,14 @@ parser.add_argument("--skip_cache", action="store_true")
 args = parser.parse_args()
 
 # Array of Solana version mapped to rust version hashes
-RUST_DOCKER_IMAGESHA_MAP = {
-    "1.68.0": "79892de83d1af9109c47a4566a24a0b240348bb8c088f1bccc52645c4c70ec39",
-    "1.69.0": "b7e0e2c6199fb5f309742c5eba637415c25ca2bed47fa5e80e274d4510ddfa3a",
-    "1.72.1": "6562d50b62366d5b9db92b34c6684fab5bf3b9f627e59a863c9c0675760feed4",
-    "1.73.0": "7ec316528af3582341280f667be6cfd93062a10d104f3b1ea72cd1150c46ef22",
-    "1.75.0": "b7f381685785bb4192e53995d6ad1dec70954e682e18e06a4c8c02011ab2f32e",
-}
+RUST_DOCKER_IMAGESHA_MAP = {}
 
 
 RUST_VERSION_PLACEHOLDER = "$RUST_VERSION"
 SOLANA_VERSION_PLACEHOLDER = "$SOLANA_VERSION"
 
 base_dockerfile_text = f"""
-FROM --platform=linux/amd64 rust@sha256:{RUST_VERSION_PLACEHOLDER}
+FROM --platform=linux/amd64 rust@{RUST_VERSION_PLACEHOLDER}
 
 RUN apt-get update && apt-get install -qy git gnutls-bin
 RUN sh -c "$(curl -sSfL https://release.solana.com/{SOLANA_VERSION_PLACEHOLDER}/install)"
@@ -55,46 +49,20 @@ def get_toolchain(version_tag):
     if "v1.14" in version_tag:
         return "1.68.0"
 
-    attempt = 0
-    max_attempts = 5
 
-    while attempt < max_attempts:
-        url = "https://api.github.com/repos/solana-labs/solana/contents/rust-toolchain.toml?ref=tags/" + version_tag
-        headers = {'Accept': 'application/vnd.github.v3.raw'}  # Fetch the raw file content
+    url = f"https://raw.githubusercontent.com/solana-labs/solana/{version_tag}/rust-toolchain.toml"
+    headers = {'Accept': 'application/vnd.github.v3.raw'}  # Fetch the raw file content
 
-        response = requests.get(url, headers=headers)
-        if response.status_code == 200:
-            parsed_data = tomllib.loads(response.text)
-            channel_version = parsed_data['toolchain']['channel']
+    response = requests.get(url, headers=headers)
+    if response.status_code == 200:
+        parsed_data = tomllib.loads(response.text)
+        channel_version = parsed_data['toolchain']['channel']
 
-            # Strict rate limit for unauthenticated requests
-            time.sleep(2.5)
-
-            return channel_version
-
-        else:
-            # Parse error message to json
-            error = json.loads(response.text)
-
-            print(response.text)
-
-            if 'message' in error:
-                if "rate limit exceeded" in error['message']:
-                    wait = 5 + 2 ** attempt  # Exponential backoff factor
-                    max_wait = 300  # Maximum waiting time in seconds
-                    sleep_time = min(wait, max_wait)
-                    print(f"Rate limit exceeded. Sleeping for {sleep_time} seconds.")
-                    time.sleep(sleep_time)
-                    attempt += 1
-                elif error['message'] == "Not Found":
-                    # If message is "Not Found" then default to 1.68.0
-                    print("Using default rust version 1.68.0 for Solana version", version_tag)
-                    return "1.68.0"
-                else:
-                    print("Failed to fetch the file")
-                    print("Error message: " + error['message'])
-                    return None
-
+        return channel_version
+    else:
+        print(f"Failed to fetch rust-toolchain.toml for {version_tag}")
+        return None
+    
 tags = list(
     filter(
         check_version,
@@ -110,15 +78,30 @@ dockerfiles = {}
 
 for release in tags:
     rust_version = get_toolchain(release)
-    print(release + ", " + rust_version)
+    print("Generating Dockerfile for " + release + ", rust version " + rust_version)
 
     if rust_version is None:
         print(f"Failed to fetch rust version for {release}")
         continue
 
     if rust_version not in RUST_DOCKER_IMAGESHA_MAP:
-        print(f"Rust version {rust_version} not found in the map")
-        continue
+        response = requests.get(
+            "https://hub.docker.com/v2/namespaces/library/repositories/rust/tags/1.68.0-bullseye"
+        )
+
+        if response.status_code == 200:
+            # JSONify response
+            response_json = response.json()
+
+            # find amd64 image
+            for image in response_json["images"]:
+                if image["architecture"] == "amd64":
+                    RUST_DOCKER_IMAGESHA_MAP[rust_version] = image["digest"]
+                    break
+            
+            if rust_version not in RUST_DOCKER_IMAGESHA_MAP:
+                print(f"Failed to fetch rust image for {rust_version}")
+                continue
 
     dockerfile = base_dockerfile_text.replace(SOLANA_VERSION_PLACEHOLDER, release).lstrip("\n")
     dockerfile = dockerfile.replace(RUST_VERSION_PLACEHOLDER, RUST_DOCKER_IMAGESHA_MAP[rust_version])
