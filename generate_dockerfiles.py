@@ -128,21 +128,22 @@ for release in tags:
 
 print(RUST_DOCKER_IMAGESHA_MAP)
 
-if args.upload:
-    digest_set = set()
-    if not args.skip_cache:
-        print("Fetching existing images")
-        response = requests.get(
-            "https://hub.docker.com/v2/namespaces/ellipsislabs/repositories/solana/tags?page_size=1000"
-        )
-        for result in response.json()["results"]:
-            if result["name"] != "latest":
-                try:
-                    digest_set.add(result["name"])
-                except Exception as e:
-                    print(e)
-                    continue
+digest_set = set()
+if not args.skip_cache:
+    print("Fetching existing images")
+    response = requests.get(
+        "https://hub.docker.com/v2/namespaces/ellipsislabs/repositories/solana/tags?page_size=1000"
+    )
+    for result in response.json()["results"]:
+        print(result)
+        if result["name"] != "latest":
+            try:
+                digest_set.add(result["name"])
+            except Exception as e:
+                print(e)
+                continue
 
+if args.upload:
     print("Uploading all Dockerfiles")
     for tag, dockerfile in dockerfiles.items():
         # Strip the `v` from the tag to keep the versions consistent in Docker
@@ -152,6 +153,7 @@ if args.upload:
 
         print(stripped_tag, args.version)
 
+        force_build = False
         if args.version is not None:
             ver = args.version.split(".")
             if len(ver) == 2:
@@ -162,8 +164,13 @@ if args.upload:
             if major != a_major or minor != a_minor or a_patch != patch:
                 print(f"Skipping {stripped_tag}")
                 continue
+            force_build = True
 
-        if stripped_tag in digest_set and stripped_tag not in dirty_set:
+        if (
+            stripped_tag in digest_set
+            and stripped_tag not in dirty_set
+            and not force_build
+        ):
             print(f"Already built image for {stripped_tag}, skipping")
             continue
         if stripped_tag in dirty_set:
