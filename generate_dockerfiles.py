@@ -10,10 +10,13 @@ import tomllib
 parser = argparse.ArgumentParser()
 parser.add_argument("--upload", action="store_true")
 parser.add_argument("--skip_cache", action="store_true")
+parser.add_argument("--version")
 args = parser.parse_args()
 
 # Array of Solana version mapped to rust version hashes
-RUST_DOCKER_IMAGESHA_MAP = {}
+RUST_DOCKER_IMAGESHA_MAP = {
+    "1.68.0": "sha256:79892de83d1af9109c47a4566a24a0b240348bb8c088f1bccc52645c4c70ec39"
+}
 
 
 RUST_VERSION_PLACEHOLDER = "$RUST_VERSION"
@@ -87,9 +90,9 @@ for release in tags:
         print(f"Failed to fetch rust version for {release}")
         continue
 
-    if rust_version not in RUST_DOCKER_IMAGESHA_MAP:
+    if rust_version not in RUST_DOCKER_IMAGESHA_MAP and rust_version != "1.68.0":
         response = requests.get(
-            f"https://hub.docker.com/v2/namespaces/library/repositories/rust/tags/{rust_version}-bullseye"
+            f"https://hub.docker.com/v2/namespaces/library/repositories/rust/tags/{rust_version}"
         )
 
         if response.status_code == 200:
@@ -125,6 +128,8 @@ for release in tags:
         f.write(dockerfile)
     dockerfiles[release] = path
 
+print(RUST_DOCKER_IMAGESHA_MAP)
+
 if args.upload:
     digest_set = set()
     if not args.skip_cache:
@@ -144,6 +149,22 @@ if args.upload:
     for tag, dockerfile in dockerfiles.items():
         # Strip the `v` from the tag to keep the versions consistent in Docker
         stripped_tag = tag.strip("v")
+
+        (major, minor, patch) = stripped_tag.split(".")
+
+        print(stripped_tag, args.version)
+
+        if args.version is not None:
+            ver = args.version.split(".")
+            if len(ver) == 2:
+                a_major, a_minor = ver
+                a_patch = patch
+            if len(ver) == 3:
+                a_major, a_minor, a_patch = ver
+            if major != a_major or minor != a_minor or a_patch != patch:
+                print(f"Skipping {stripped_tag}")
+                continue
+
         if stripped_tag in digest_set and stripped_tag not in dirty_set:
             print(f"Already built image for {stripped_tag}, skipping")
             continue
