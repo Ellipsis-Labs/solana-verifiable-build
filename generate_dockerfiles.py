@@ -34,6 +34,7 @@ output = subprocess.check_output(
     ["git", "ls-remote", "--tags", "https://github.com/solana-labs/solana"]
 )
 
+
 def check_version(version_str):
     try:
         # Ignore this one
@@ -45,24 +46,25 @@ def check_version(version_str):
     except Exception as e:
         return False
 
+
 def get_toolchain(version_tag):
     if "v1.14" in version_tag:
         return "1.68.0"
 
-
     url = f"https://raw.githubusercontent.com/solana-labs/solana/{version_tag}/rust-toolchain.toml"
-    headers = {'Accept': 'application/vnd.github.v3.raw'}  # Fetch the raw file content
+    headers = {"Accept": "application/vnd.github.v3.raw"}  # Fetch the raw file content
 
     response = requests.get(url, headers=headers)
     if response.status_code == 200:
         parsed_data = tomllib.loads(response.text)
-        channel_version = parsed_data['toolchain']['channel']
+        channel_version = parsed_data["toolchain"]["channel"]
 
         return channel_version
     else:
         print(f"Failed to fetch rust-toolchain.toml for {version_tag}")
         return None
-    
+
+
 tags = list(
     filter(
         check_version,
@@ -76,6 +78,7 @@ tags = list(
 
 dockerfiles = {}
 
+dirty_set = set()
 for release in tags:
     rust_version = get_toolchain(release)
     print("Generating Dockerfile for " + release + ", rust version " + rust_version)
@@ -98,14 +101,26 @@ for release in tags:
                 if image["architecture"] == "amd64":
                     RUST_DOCKER_IMAGESHA_MAP[rust_version] = image["digest"]
                     break
-            
+
             if rust_version not in RUST_DOCKER_IMAGESHA_MAP:
                 print(f"Failed to fetch rust image for {rust_version}")
                 continue
 
-    dockerfile = base_dockerfile_text.replace(SOLANA_VERSION_PLACEHOLDER, release).lstrip("\n")
-    dockerfile = dockerfile.replace(RUST_VERSION_PLACEHOLDER, RUST_DOCKER_IMAGESHA_MAP[rust_version])
+    dockerfile = base_dockerfile_text.replace(
+        SOLANA_VERSION_PLACEHOLDER, release
+    ).lstrip("\n")
+    dockerfile = dockerfile.replace(
+        RUST_VERSION_PLACEHOLDER, RUST_DOCKER_IMAGESHA_MAP[rust_version]
+    )
+
     path = f"docker/{release}.Dockerfile"
+    with open(path, "r") as f:
+        prev = f.read()
+
+    if prev != dockerfile:
+        dirty_set.add(release.strip("v"))
+        print(release)
+
     with open(path, "w") as f:
         f.write(dockerfile)
     dockerfiles[release] = path
@@ -129,9 +144,11 @@ if args.upload:
     for tag, dockerfile in dockerfiles.items():
         # Strip the `v` from the tag to keep the versions consistent in Docker
         stripped_tag = tag.strip("v")
-        if stripped_tag in digest_set:
+        if stripped_tag in digest_set and stripped_tag not in dirty_set:
             print(f"Already built image for {stripped_tag}, skipping")
             continue
+        if stripped_tag in dirty_set:
+            print(f"Dockerfile for {stripped_tag} needs to be modified")
         version_tag = f"solana:{stripped_tag}"
         print(version_tag)
         current_directory = os.getcwd()
