@@ -69,7 +69,6 @@ pub async fn upload_program(
             .ok_or_else(|| anyhow!("unable to get config file path"))?;
         let cli_config: Config = Config::load(config_file)?;
 
-        println!("RPC URL: {}", cli_config.json_rpc_url);
         let connection = RpcClient::new(cli_config.json_rpc_url);
 
         let signer = solana_clap_utils::keypair::keypair_from_path(
