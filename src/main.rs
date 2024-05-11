@@ -13,19 +13,16 @@ use solana_sdk::{
     pubkey::Pubkey,
 };
 use std::{
-    io::Read,
-    path::PathBuf,
-    process::Stdio,
-    sync::atomic::AtomicBool,
-    sync::{atomic::Ordering, Arc},
+    io::Read, path::PathBuf, process::{exit, Stdio}, sync::{atomic::{AtomicBool, Ordering}, Arc}
 };
 use uuid::Uuid;
 pub mod api_client;
 pub mod image_config;
 pub mod api_models;
+pub mod solana_program;
 use image_config::IMAGE_MAP;
 
-use crate::api_client::send_job_to_remote;
+use crate::{api_client::send_job_to_remote, solana_program::upload_program};
 
 const MAINNET_GENESIS_HASH: &str = "5eykt4UsFv8P8NJdTREpY1vzqKqZKvdpKuc147dw2N9d";
 
@@ -711,7 +708,7 @@ pub async fn verify_from_repo(
         .output()?;
 
     // Checkout a specific commit hash, if provided
-    if let Some(commit_hash) = commit_hash {
+    if let Some(commit_hash) = commit_hash.as_ref() {
         let result = std::process::Command::new("git")
             .args(["-C", &verify_tmp_root_path])
             .args(["checkout", &commit_hash])
@@ -797,6 +794,14 @@ pub async fn verify_from_repo(
 
         if build_hash == program_hash {
             println!("Program hash matches ✅");
+            // TODO : FIX Args Param  
+            let x = upload_program(repo_url, &commit_hash.clone(), [].into(), program_id).await;
+            if x.is_err() {
+                println!("Error uploading program: {:?}", x);
+                exit(1);
+            } else {
+                println!("Program uploaded successfully");
+            }
         } else {
             println!("Program hashes do not match ❌");
         }

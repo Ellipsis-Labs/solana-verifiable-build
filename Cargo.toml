@@ -13,6 +13,7 @@ anyhow = "1.0.68"
 tokio = { version = "1.29.1", features = ["full"] }
 solana-client = "1.14.10"
 solana-cli-config = "1.14.10"
+solana-clap-utils = "1.14.10"
 solana-sdk = "1.14.10"
 sha256 = "1.1.1"
 hex = "0.3.1"
@@ -26,6 +27,7 @@ lazy_static = "1.4.0"
 indicatif = "0.17.7"
 crossbeam-channel = "0.5.11"
 serde = { version = "1.0.166", features = ["derive"] }
+borsh = {version = "1.2.0", features = ["derive"] }
 
 [dependencies.uuid]
 version = "1.2.2"
