@@ -90,9 +90,8 @@ pub async fn upload_program(
 
         let (pda_account, _) = Pubkey::find_program_address(seeds, &program_id);
 
-        // TODO: Need to get Version from Cargo.toml
         let input_params = InputParams {
-            version: "0.2.11".to_string(),
+            version: env!("CARGO_PKG_VERSION").to_string(),
             git_url,
             commit: commit.clone().unwrap_or_default(),
             args,
