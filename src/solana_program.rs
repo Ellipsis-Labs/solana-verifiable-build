@@ -59,7 +59,7 @@ pub async fn upload_program(
     git_url: String,
     commit: &Option<String>,
     args: Vec<String>,
-    other_program_address: Pubkey,
+    program_address: Pubkey,
 ) -> anyhow::Result<()> {
     if true {
         println!("Uploading the program to the Solana blockchain...");
@@ -80,15 +80,15 @@ pub async fn upload_program(
         .map_err(|err| anyhow!("Unable to get signer from path: {}", err))?;
         let signer_pubkey = signer.pubkey();
 
-        let program_id = Pubkey::from_str(OTTER_VERIFY_PROGRAMID).unwrap();
+        let otter_verify_program_id = Pubkey::from_str(OTTER_VERIFY_PROGRAMID).unwrap();
 
         let seeds: &[&[u8]; 3] = &[
             b"otter_verify",
             &signer_pubkey.to_bytes(),
-            &other_program_address.to_bytes(),
+            &program_address.to_bytes(),
         ];
 
-        let (pda_account, _) = Pubkey::find_program_address(seeds, &program_id);
+        let (pda_account, _) = Pubkey::find_program_address(seeds, &otter_verify_program_id);
 
         let input_params = InputParams {
             version: env!("CARGO_PKG_VERSION").to_string(),
@@ -100,12 +100,12 @@ pub async fn upload_program(
         let ix_data = create_ix_data(&input_params, OtterVerifyInstructions::Initialize);
 
         let ix = solana_sdk::instruction::Instruction::new_with_bytes(
-            program_id,
+            otter_verify_program_id,
             &ix_data,
             vec![
                 AccountMeta::new(pda_account, false),
                 AccountMeta::new_readonly(signer_pubkey, true),
-                AccountMeta::new_readonly(other_program_address, false),
+                AccountMeta::new_readonly(program_address, false),
                 AccountMeta::new_readonly(system_program::ID, false),
             ],
         );
