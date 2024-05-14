@@ -13,12 +13,19 @@ use solana_sdk::{
     pubkey::Pubkey,
 };
 use std::{
-    io::Read, path::PathBuf, process::{exit, Stdio}, sync::{atomic::{AtomicBool, Ordering}, Arc}
+    io::Read,
+    path::PathBuf,
+    process::{exit, Stdio},
+    str::FromStr,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
 };
 use uuid::Uuid;
 pub mod api_client;
-pub mod image_config;
 pub mod api_models;
+pub mod image_config;
 pub mod solana_program;
 use image_config::IMAGE_MAP;
 
@@ -311,12 +318,14 @@ pub fn get_genesis_hash(url: Option<String>) -> anyhow::Result<String> {
     Ok(genesis_hash.to_string())
 }
 
-
 pub fn get_docker_resource_limits() -> Option<(String, String)> {
     let memory = std::env::var("SVB_DOCKER_MEMORY_LIMIT").ok();
     let cpus = std::env::var("SVB_DOCKER_CPU_LIMIT").ok();
     if memory.is_some() || cpus.is_some() {
-        println!("Using docker resource limits: memory: {:?}, cpus: {:?}", memory, cpus);
+        println!(
+            "Using docker resource limits: memory: {:?}, cpus: {:?}",
+            memory, cpus
+        );
     } else {
         // Print message to user that they can set these environment variables to limit docker resources
         println!("No Docker resource limits are set.");
@@ -442,11 +451,14 @@ pub fn build(
     let mount_params = format!("{}:{}", mount_path, workdir);
     let container_id = {
         let mut cmd = std::process::Command::new("docker");
-            cmd.args(["run", "--rm", "-v", &mount_params, "-dit"]);
-            cmd.stderr(Stdio::inherit());
+        cmd.args(["run", "--rm", "-v", &mount_params, "-dit"]);
+        cmd.stderr(Stdio::inherit());
 
         if let Some((memory_limit, cpu_limit)) = get_docker_resource_limits() {
-            cmd.arg("--memory").arg(memory_limit).arg("--cpus").arg(cpu_limit);
+            cmd.arg("--memory")
+                .arg(memory_limit)
+                .arg("--cpus")
+                .arg(cpu_limit);
         }
 
         let output = cmd
@@ -554,14 +566,16 @@ pub fn verify_from_image(
 
     println!("Workdir: {}", workdir);
 
-
     let container_id = {
         let mut cmd = std::process::Command::new("docker");
-            cmd.args(["run", "--rm", "-dit"]);
-            cmd.stderr(Stdio::inherit());
+        cmd.args(["run", "--rm", "-dit"]);
+        cmd.stderr(Stdio::inherit());
 
         if let Some((memory_limit, cpu_limit)) = get_docker_resource_limits() {
-            cmd.arg("--memory").arg(memory_limit).arg("--cpus").arg(cpu_limit);
+            cmd.arg("--memory")
+                .arg(memory_limit)
+                .arg("--cpus")
+                .arg(cpu_limit);
         }
 
         let output = cmd
@@ -730,7 +744,7 @@ pub async fn verify_from_repo(
 
     let library_name = match library_name_opt {
         Some(p) => p,
-        None => { 
+        None => {
                 std::process::Command::new("find")
                     .args([mount_path.to_str().unwrap(), "-name", "Cargo.toml"])
                     .output()
@@ -794,7 +808,7 @@ pub async fn verify_from_repo(
 
         if build_hash == program_hash {
             println!("Program hash matches ✅");
-            // TODO : FIX Args Param  
+            // TODO : FIX Args Param
             let x = upload_program(repo_url, &commit_hash.clone(), [].into(), program_id).await;
             if x.is_err() {
                 println!("Error uploading program: {:?}", x);
