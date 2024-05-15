@@ -16,7 +16,6 @@ use std::{
     io::Read,
     path::PathBuf,
     process::{exit, Stdio},
-    str::FromStr,
     sync::{
         atomic::{AtomicBool, Ordering},
         Arc,
