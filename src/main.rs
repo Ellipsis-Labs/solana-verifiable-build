@@ -686,6 +686,8 @@ pub async fn verify_from_repo(
         .await?;
         return Ok(());
     }
+    // Create a Vec to store solana-verify args
+    let mut args: Vec<&str> = Vec::new();
 
     // Get source code from repo_url
     let base_name = std::process::Command::new("basename")
@@ -737,10 +739,15 @@ pub async fn verify_from_repo(
         }
     }
 
+    if !relative_mount_path.is_empty() {
+        args.push("--mount-path");
+        args.push(&relative_mount_path);
+    }
     // Get the absolute build path to the solana program directory to build inside docker
-    let mount_path = PathBuf::from(verify_tmp_root_path.clone()).join(relative_mount_path);
+    let mount_path = PathBuf::from(verify_tmp_root_path.clone()).join(&relative_mount_path);
     println!("Build path: {:?}", mount_path);
 
+    args.push("--library-name");
     let library_name = match library_name_opt {
         Some(p) => p,
         None => {
@@ -782,16 +789,33 @@ pub async fn verify_from_repo(
                     })?
         }
     };
+    args.push(&library_name);
     println!("Verifying program: {}", library_name);
+
+    if let Some(base_image) = &base_image {
+        args.push("--base-image");
+        args.push(base_image);
+    }
+
+    if bpf_flag {
+        args.push("--bpf");
+    }
+
+    if !cargo_args.is_empty() {
+        args.push("--");
+        for arg in &cargo_args {
+            args.push(arg);
+        }
+    }
 
     let result = build_and_verify_repo(
         mount_path.to_str().unwrap().to_string(),
-        base_image,
+        base_image.clone(),
         bpf_flag,
-        library_name,
+        library_name.clone(),
         connection_url,
         program_id,
-        cargo_args,
+        cargo_args.clone(),
         container_id_opt,
     );
 
@@ -807,8 +831,13 @@ pub async fn verify_from_repo(
 
         if build_hash == program_hash {
             println!("Program hash matches ✅");
-            // TODO : FIX Args Param
-            let x = upload_program(repo_url, &commit_hash.clone(), [].into(), program_id).await;
+            let x = upload_program(
+                repo_url,
+                &commit_hash.clone(),
+                args.iter().map(|&s| s.into()).collect(),
+                program_id,
+            )
+            .await;
             if x.is_err() {
                 println!("Error uploading program: {:?}", x);
                 exit(1);
