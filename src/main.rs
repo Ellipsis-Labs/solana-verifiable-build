@@ -28,7 +28,10 @@ pub mod image_config;
 pub mod solana_program;
 use image_config::IMAGE_MAP;
 
-use crate::{api_client::send_job_to_remote, solana_program::upload_program};
+use crate::{
+    api_client::send_job_to_remote,
+    solana_program::{process_close, upload_program},
+};
 
 const MAINNET_GENESIS_HASH: &str = "5eykt4UsFv8P8NJdTREpY1vzqKqZKvdpKuc147dw2N9d";
 
@@ -135,6 +138,11 @@ enum SubCommand {
         #[clap(required = false, last = true)]
         cargo_args: Vec<String>,
     },
+    Close {
+        /// Close the Otter Verify PDA
+        #[clap(long)]
+        program_id: Pubkey,
+    },
 }
 
 #[tokio::main]
@@ -229,6 +237,7 @@ async fn main() -> anyhow::Result<()> {
             )
             .await
         }
+        SubCommand::Close { program_id } => process_close(program_id).await,
     };
 
     if caught_signal.load(Ordering::Relaxed) || res.is_err() {

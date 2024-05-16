@@ -33,6 +33,7 @@ pub struct InputParams {
     pub args: Vec<String>,
 }
 
+#[derive(PartialEq)]
 pub enum OtterVerifyInstructions {
     Initialize,
     Update,
@@ -49,7 +50,7 @@ impl OtterVerifyInstructions {
     }
 }
 
-fn create_ix_data(params: &InputParams, ix: OtterVerifyInstructions) -> Vec<u8> {
+fn create_ix_data(params: &InputParams, ix: &OtterVerifyInstructions) -> Vec<u8> {
     let mut data = ix.get_discriminant(); // Discriminant for the instruction
     let params_data = to_vec(&params).expect("Unable to serialize params");
     data.extend_from_slice(&params_data);
@@ -85,19 +86,29 @@ fn process_otter_verify_ixs(
     let signer_pubkey = signer.pubkey();
     let connection = user_config.1;
 
-    let ix_data = create_ix_data(params, instruction);
+    let ix_data = if instruction != OtterVerifyInstructions::Close {
+        create_ix_data(params, &instruction)
+    } else {
+        instruction.get_discriminant()
+    };
     let otter_verify_program_id = Pubkey::from_str(OTTER_VERIFY_PROGRAMID)?;
+
+    let mut accounts_meta_vec = vec![
+        AccountMeta::new(pda_account, false),
+        AccountMeta::new_readonly(signer_pubkey, true),
+        AccountMeta::new_readonly(program_address, false),
+    ];
+
+    if instruction != OtterVerifyInstructions::Close {
+        accounts_meta_vec.push(AccountMeta::new_readonly(system_program::ID, false));
+    }
 
     let ix = solana_sdk::instruction::Instruction::new_with_bytes(
         otter_verify_program_id,
         &ix_data,
-        vec![
-            AccountMeta::new(pda_account, false),
-            AccountMeta::new_readonly(signer_pubkey, true),
-            AccountMeta::new_readonly(program_address, false),
-            AccountMeta::new_readonly(system_program::ID, false),
-        ],
+        accounts_meta_vec,
     );
+    println!("{:?}", ix);
     let message = Message::new(&[ix], Some(&signer_pubkey));
 
     let mut tx = Transaction::new_unsigned(message);
@@ -186,6 +197,43 @@ pub async fn upload_program(
         }
     } else {
         println!("Exiting without uploading the program.");
+    }
+
+    Ok(())
+}
+
+pub async fn process_close(program_address: Pubkey) -> anyhow::Result<()> {
+    let user_config = get_user_config()?;
+    let signer = user_config.0;
+    let signer_pubkey = signer.pubkey();
+    let connection = user_config.1;
+
+    let otter_verify_program_id = Pubkey::from_str(OTTER_VERIFY_PROGRAMID)?;
+
+    let seeds: &[&[u8]; 3] = &[
+        b"otter_verify",
+        &signer_pubkey.to_bytes(),
+        &program_address.to_bytes(),
+    ];
+
+    let (pda_account, _) = Pubkey::find_program_address(seeds, &otter_verify_program_id);
+
+    if connection.get_account(&pda_account).is_ok() {
+        process_otter_verify_ixs(
+            &InputParams {
+                version: "".to_string(),
+                git_url: "".to_string(),
+                commit: "".to_string(),
+                args: vec![],
+            },
+            pda_account,
+            program_address,
+            OtterVerifyInstructions::Close,
+        )?;
+    } else {
+        return Err(anyhow!(
+            "Program account does not exist. Please provide the program address not PDA address."
+        ));
     }
 
     Ok(())
