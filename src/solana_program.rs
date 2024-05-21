@@ -12,8 +12,8 @@ use solana_sdk::{
     system_program, transaction::Transaction,
 };
 
-const OTTER_VERIFY_PROGRAMID: &str = "EngB3ANqXh8nDFhzZYJkCfpCHWCHkTrJTCWKEuSFCh7B";
-const OTTER_SIGNER: &str = "HUUEmwc1rjh748XF2MrYLNHS4zE2D56yT9pBAaj9ggWM";
+const OTTER_VERIFY_PROGRAMID: &str = "verifycLy8mB96wd9wqq3WDXQwM4oU6r42Th37Db9fC";
+const OTTER_SIGNER: &str = "9VWiUUhgNoRwTH5NVehYJEDwcotwYX3VgW4MChiHPAqU";
 
 pub fn prompt_user_input(message: &str) -> bool {
     let mut buffer = [0; 1];
