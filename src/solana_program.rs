@@ -108,7 +108,6 @@ fn process_otter_verify_ixs(
         &ix_data,
         accounts_meta_vec,
     );
-    println!("{:?}", ix);
     let message = Message::new(&[ix], Some(&signer_pubkey));
 
     let mut tx = Transaction::new_unsigned(message);
@@ -119,7 +118,7 @@ fn process_otter_verify_ixs(
         .send_and_confirm_transaction_with_spinner(&tx)
         .map_err(|err| {
             println!("{:?}", err);
-            anyhow!("Failed to send transaction to the network.",)
+            anyhow!("Failed to send transaction to the network.")
         })?;
     println!("Program uploaded successfully. Transaction ID: {}", tx_id);
     Ok(())

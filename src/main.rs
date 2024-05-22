@@ -850,8 +850,6 @@ pub async fn verify_from_repo(
             if x.is_err() {
                 println!("Error uploading program: {:?}", x);
                 exit(1);
-            } else {
-                println!("Program uploaded successfully");
             }
         } else {
             println!("Program hashes do not match ❌");
