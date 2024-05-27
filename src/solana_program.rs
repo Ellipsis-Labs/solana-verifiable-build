@@ -131,7 +131,7 @@ pub async fn upload_program(
     program_address: Pubkey,
 ) -> anyhow::Result<()> {
     if prompt_user_input("Do you want to update it to On-Chain Program ?. (Y/n) ") {
-        println!("Uploading the program to the Solana blockchain...");
+        println!("Uploading the program verification params to the Solana blockchain...");
 
         let input_params = InputParams {
             version: env!("CARGO_PKG_VERSION").to_string(),
@@ -146,7 +146,7 @@ pub async fn upload_program(
 
         let otter_verify_program_id = Pubkey::from_str(OTTER_VERIFY_PROGRAMID)?;
 
-        // Possible PDA 1 signer is current signer then we can update the program
+        // Possible PDA-1: Signer is current signer then we can update the program
         let seeds: &[&[u8]; 3] = &[
             b"otter_verify",
             &signer_pubkey.to_bytes(),
@@ -155,7 +155,7 @@ pub async fn upload_program(
 
         let (pda_account_1, _) = Pubkey::find_program_address(seeds, &otter_verify_program_id);
 
-        // Possible PDA 2 signer is otter signer
+        // Possible PDA-2: signer is otter signer
         let otter_signer = Pubkey::from_str(OTTER_SIGNER)?;
         let seeds: &[&[u8]; 3] = &[
             b"otter_verify",
