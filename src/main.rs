@@ -337,7 +337,7 @@ pub fn build(
     cargo_args: Vec<String>,
     container_id_opt: &mut Option<String>,
 ) -> anyhow::Result<()> {
-    let mount_path = mount_directory.unwrap_or(
+    let mut mount_path = mount_directory.unwrap_or(
         std::env::current_dir()?
             .as_os_str()
             .to_str()
@@ -345,7 +345,8 @@ pub fn build(
             .to_string(),
     );
     println!("Mounting path: {}", mount_path);
-
+    mount_path = mount_path.trim_end_matches('/').to_string();
+    
     let lockfile = format!("{}/Cargo.lock", mount_path);
     if !std::path::Path::new(&lockfile).exists() {
         println!("Mount directory must contain a Cargo.lock file");
