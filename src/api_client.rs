@@ -47,6 +47,31 @@ fn loading_animation(receiver: Receiver<bool>) {
     }
 }
 
+fn print_verification_status(
+    program_id: &str,
+    status: bool,
+    status_response: &JobVerificationResponse,
+) {
+    let status_message = if status {
+        format!("Program {} has been verified. ✅", program_id)
+    } else {
+        format!("Program {} has not been verified. ❌", program_id)
+    };
+    let message = if status {
+        "The provided GitHub build matches the on-chain hash."
+    } else {
+        "The provided GitHub build does not match the on-chain hash."
+    };
+    println!("{}", status_message);
+    println!("{}", message);
+    println!("On Chain Hash: {}", status_response.on_chain_hash.as_str());
+    println!(
+        "Executable Hash: {}",
+        status_response.executable_hash.as_str()
+    );
+    println!("Repo URL: {}", status_response.repo_url.as_str());
+}
+
 // Send a job to the remote server
 #[allow(clippy::too_many_arguments)]
 pub async fn send_job_to_remote(
@@ -103,14 +128,20 @@ pub async fn send_job_to_remote(
                     let _ = sender.send(true);
                     handle.join().unwrap();
                     let status_response = status.respose.unwrap();
-                    println!("Program {} has been successfully verified. ✅", program_id);
-                    println!("\nThe provided GitHub build matches the on-chain hash:");
-                    println!("On Chain Hash: {}", status_response.on_chain_hash.as_str());
-                    println!(
-                        "Executable Hash: {}",
-                        status_response.executable_hash.as_str()
-                    );
-                    println!("Repo URL: {}", status_response.repo_url.as_str());
+
+                    if status_response.executable_hash == status_response.on_chain_hash {
+                        print_verification_status(
+                            program_id.to_string().as_str(),
+                            true,
+                            &status_response,
+                        );
+                    } else {
+                        print_verification_status(
+                            program_id.to_string().as_str(),
+                            false,
+                            &status_response,
+                        );
+                    }
                     break;
                 }
                 JobStatus::Failed => {
