@@ -12,6 +12,8 @@ use solana_sdk::{
     system_program, transaction::Transaction,
 };
 
+use crate::api::get_last_deployed_slot;
+
 const OTTER_VERIFY_PROGRAMID: &str = "verifycLy8mB96wd9wqq3WDXQwM4oU6r42Th37Db9fC";
 const OTTER_SIGNER: &str = "9VWiUUhgNoRwTH5NVehYJEDwcotwYX3VgW4MChiHPAqU";
 
@@ -31,6 +33,7 @@ pub struct InputParams {
     pub git_url: String,
     pub commit: String,
     pub args: Vec<String>,
+    pub deployed_slot: u64,
 }
 
 #[derive(PartialEq)]
@@ -132,17 +135,22 @@ pub async fn upload_program(
 ) -> anyhow::Result<()> {
     if prompt_user_input("Do you want to update it to On-Chain Program ?. (Y/n) ") {
         println!("Uploading the program verification params to the Solana blockchain...");
+        
+        let cli_config = get_user_config()?;
+        let signer_pubkey = cli_config.0.pubkey();
+        let connection = cli_config.1;
+        let rpc_url = connection.url();
+        
+        let last_deployed_slot = get_last_deployed_slot(&rpc_url, &program_address.to_string()).await
+        .map_err(|err| anyhow!("Unable to get last deployed slot: {}", err))?;
 
         let input_params = InputParams {
             version: env!("CARGO_PKG_VERSION").to_string(),
             git_url,
             commit: commit.clone().unwrap_or_default(),
             args,
+            deployed_slot: last_deployed_slot,
         };
-
-        let cli_config = get_user_config()?;
-        let signer_pubkey = cli_config.0.pubkey();
-        let connection = cli_config.1;
 
         let otter_verify_program_id = Pubkey::from_str(OTTER_VERIFY_PROGRAMID)?;
 
@@ -206,6 +214,10 @@ pub async fn process_close(program_address: Pubkey) -> anyhow::Result<()> {
     let signer = user_config.0;
     let signer_pubkey = signer.pubkey();
     let connection = user_config.1;
+    let rpc_url = connection.url();
+
+    let last_deployed_slot = get_last_deployed_slot(&rpc_url, &program_address.to_string()).await
+        .map_err(|err| anyhow!("Unable to get last deployed slot: {}", err))?;
 
     let otter_verify_program_id = Pubkey::from_str(OTTER_VERIFY_PROGRAMID)?;
 
@@ -224,6 +236,7 @@ pub async fn process_close(program_address: Pubkey) -> anyhow::Result<()> {
                 git_url: "".to_string(),
                 commit: "".to_string(),
                 args: vec![],
+                deployed_slot: last_deployed_slot,
             },
             pda_account,
             program_address,

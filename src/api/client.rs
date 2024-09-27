@@ -7,7 +7,7 @@ use solana_sdk::pubkey::Pubkey;
 use std::thread;
 use std::time::{Duration, Instant};
 
-use crate::api_models::{
+use crate::api::models::{
     ErrorResponse, JobResponse, JobStatus, JobVerificationResponse, VerifyResponse,
 };
 

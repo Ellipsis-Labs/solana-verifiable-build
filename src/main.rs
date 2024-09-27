@@ -22,14 +22,13 @@ use std::{
     },
 };
 use uuid::Uuid;
-pub mod api_client;
-pub mod api_models;
+pub mod api;
 pub mod image_config;
 pub mod solana_program;
 use image_config::IMAGE_MAP;
 
 use crate::{
-    api_client::send_job_to_remote,
+    api::send_job_to_remote,
     solana_program::{process_close, upload_program},
 };
 
