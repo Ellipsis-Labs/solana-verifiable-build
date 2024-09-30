@@ -115,6 +115,6 @@ mod tests {
         let rpc_url = "https://docs-demo.solana-mainnet.quiknode.pro";
         let program_address = "verifycLy8mB96wd9wqq3WDXQwM4oU6r42Th37Db9fC";
         let last_deployed_slot = get_last_deployed_slot(rpc_url, program_address).await;
-        println!("Last deployed slot: {:?}", last_deployed_slot);
+        assert!(last_deployed_slot.is_ok());
     }
 }
