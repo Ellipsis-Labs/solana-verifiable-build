@@ -360,7 +360,7 @@ pub fn build(
     let workspace_path = workspace_root.unwrap_or(mount_path.clone());
     println!("Workspace path: {}", workspace_path);
 
-    let lockfile = format!("{}/Cargo.lock", mount_path);
+    let lockfile = format!("{}/Cargo.lock", workspace_path);
     if !std::path::Path::new(&lockfile).exists() {
         println!("Mount directory must contain a Cargo.lock file");
         return Err(anyhow!(format!("No lockfile found at {}", lockfile)));
