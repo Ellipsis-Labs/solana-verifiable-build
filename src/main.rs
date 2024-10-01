@@ -55,6 +55,7 @@ enum SubCommand {
         /// Path to mount to the docker image
         mount_directory: Option<String>,
         /// Path to mount to the workspace root
+        #[clap(short, long="workspace-path")]
         workspace_directory: Option<String>,
         /// Which binary file to build (applies to repositories with multiple programs)
         #[clap(long)]
