@@ -54,6 +54,8 @@ enum SubCommand {
     Build {
         /// Path to mount to the docker image
         mount_directory: Option<String>,
+        /// Path to mount to the workspace root
+        workspace_directory: Option<String>,
         /// Which binary file to build (applies to repositories with multiple programs)
         #[clap(long)]
         library_name: Option<String>,
@@ -106,6 +108,10 @@ enum SubCommand {
         /// This should be the directory that contains the workspace Cargo.toml and the Cargo.lock file
         #[clap(long, default_value = "")]
         mount_path: String,
+        /// Relative path to the specific program workspace directory in the source code repository from which to build the program
+        /// This should be the directory that contains the program's workspace Cargo.toml and the Cargo.lock file, if different from repo's workspace
+        #[clap(long, default_value = "")]
+        workspace_path: String,
         /// The HTTPS URL of the repo to clone
         repo_url: String,
         /// Optional commit hash to checkout
@@ -156,12 +162,14 @@ async fn main() -> anyhow::Result<()> {
         SubCommand::Build {
             // mount directory
             mount_directory,
+            workspace_directory,
             library_name,
             base_image,
             bpf: bpf_flag,
             cargo_args,
         } => build(
             mount_directory,
+            workspace_directory,
             library_name,
             base_image,
             bpf_flag,
@@ -200,6 +208,7 @@ async fn main() -> anyhow::Result<()> {
         SubCommand::VerifyFromRepo {
             remote,
             mount_path,
+            workspace_path,
             repo_url,
             commit_hash,
             program_id,
@@ -212,6 +221,7 @@ async fn main() -> anyhow::Result<()> {
             verify_from_repo(
                 remote,
                 mount_path,
+                workspace_path,
                 args.url,
                 repo_url,
                 commit_hash,
@@ -331,6 +341,7 @@ pub fn get_docker_resource_limits() -> Option<(String, String)> {
 
 pub fn build(
     mount_directory: Option<String>,
+    workspace_root: Option<String>,
     library_name: Option<String>,
     base_image: Option<String>,
     bpf_flag: bool,
@@ -345,6 +356,9 @@ pub fn build(
             .to_string(),
     );
     println!("Mounting path: {}", mount_path);
+
+    let workspace_path = workspace_root.unwrap_or(mount_path.clone());
+    println!("Workspace path: {}", workspace_path);
 
     let lockfile = format!("{}/Cargo.lock", mount_path);
     if !std::path::Path::new(&lockfile).exists() {
@@ -516,7 +530,7 @@ pub fn build(
     if let Some(program_name) = library_name {
         let executable_path = std::process::Command::new("find")
             .args([
-                &format!("{}/target/deploy", mount_path),
+                &format!("{}/target/deploy", workspace_path),
                 "-name",
                 &format!("{}.so", program_name),
             ])
@@ -644,6 +658,7 @@ pub fn verify_from_image(
 pub async fn verify_from_repo(
     remote: bool,
     relative_mount_path: String,
+    relative_workspace_path: String,
     connection_url: Option<String>,
     repo_url: String,
     commit_hash: Option<String>,
@@ -774,8 +789,13 @@ pub async fn verify_from_repo(
     };
     println!("Verifying program: {}", library_name);
 
+    // Get the absolute build path to the solana program directory to build inside docker
+    let workspace_path = PathBuf::from(verify_tmp_root_path.clone()).join(relative_workspace_path);
+    println!("Workspace path: {:?}", workspace_path);
+
     let result = build_and_verify_repo(
         mount_path.to_str().unwrap().to_string(),
+        workspace_path.to_str().unwrap().to_string(),
         base_image,
         bpf_flag,
         library_name,
@@ -810,6 +830,7 @@ pub async fn verify_from_repo(
 #[allow(clippy::too_many_arguments)]
 pub fn build_and_verify_repo(
     mount_path: String,
+    workspace_path: String,
     base_image: Option<String>,
     bpf_flag: bool,
     library_name: String,
@@ -822,6 +843,7 @@ pub fn build_and_verify_repo(
     let executable_filename = format!("{}.so", &library_name);
     build(
         Some(mount_path.clone()),
+        Some(workspace_path.clone()),
         Some(library_name),
         base_image,
         bpf_flag,
@@ -832,7 +854,7 @@ pub fn build_and_verify_repo(
     // Get the hash of the build
     let executable_path = std::process::Command::new("find")
         .args([
-            &format!("{}/target/deploy", mount_path),
+            &format!("{}/target/deploy", workspace_path),
             "-name",
             executable_filename.as_str(),
         ])
