@@ -15,17 +15,22 @@ use solana_sdk::{
 use std::{
     io::Read,
     path::PathBuf,
-    process::Stdio,
-    sync::atomic::AtomicBool,
-    sync::{atomic::Ordering, Arc},
+    process::{exit, Stdio},
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
 };
 use uuid::Uuid;
-pub mod api_client;
+pub mod api;
 pub mod image_config;
-pub mod api_models;
+pub mod solana_program;
 use image_config::IMAGE_MAP;
 
-use crate::api_client::send_job_to_remote;
+use crate::{
+    api::send_job_to_remote,
+    solana_program::{process_close, upload_program},
+};
 
 const MAINNET_GENESIS_HASH: &str = "5eykt4UsFv8P8NJdTREpY1vzqKqZKvdpKuc147dw2N9d";
 
@@ -132,6 +137,11 @@ enum SubCommand {
         #[clap(required = false, last = true)]
         cargo_args: Vec<String>,
     },
+    Close {
+        /// Close the Otter Verify PDA
+        #[clap(long)]
+        program_id: Pubkey,
+    },
 }
 
 #[tokio::main]
@@ -226,6 +236,7 @@ async fn main() -> anyhow::Result<()> {
             )
             .await
         }
+        SubCommand::Close { program_id } => process_close(program_id).await,
     };
 
     if caught_signal.load(Ordering::Relaxed) || res.is_err() {
@@ -314,12 +325,14 @@ pub fn get_genesis_hash(url: Option<String>) -> anyhow::Result<String> {
     Ok(genesis_hash.to_string())
 }
 
-
 pub fn get_docker_resource_limits() -> Option<(String, String)> {
     let memory = std::env::var("SVB_DOCKER_MEMORY_LIMIT").ok();
     let cpus = std::env::var("SVB_DOCKER_CPU_LIMIT").ok();
     if memory.is_some() || cpus.is_some() {
-        println!("Using docker resource limits: memory: {:?}, cpus: {:?}", memory, cpus);
+        println!(
+            "Using docker resource limits: memory: {:?}, cpus: {:?}",
+            memory, cpus
+        );
     } else {
         // Print message to user that they can set these environment variables to limit docker resources
         println!("No Docker resource limits are set.");
@@ -337,13 +350,14 @@ pub fn build(
     cargo_args: Vec<String>,
     container_id_opt: &mut Option<String>,
 ) -> anyhow::Result<()> {
-    let mount_path = mount_directory.unwrap_or(
+    let mut mount_path = mount_directory.unwrap_or(
         std::env::current_dir()?
             .as_os_str()
             .to_str()
             .ok_or_else(|| anyhow::Error::msg("Invalid path string"))?
             .to_string(),
     );
+    mount_path = mount_path.trim_end_matches('/').to_string();
     println!("Mounting path: {}", mount_path);
 
     let lockfile = format!("{}/Cargo.lock", mount_path);
@@ -445,11 +459,14 @@ pub fn build(
     let mount_params = format!("{}:{}", mount_path, workdir);
     let container_id = {
         let mut cmd = std::process::Command::new("docker");
-            cmd.args(["run", "--rm", "-v", &mount_params, "-dit"]);
-            cmd.stderr(Stdio::inherit());
+        cmd.args(["run", "--rm", "-v", &mount_params, "-dit"]);
+        cmd.stderr(Stdio::inherit());
 
         if let Some((memory_limit, cpu_limit)) = get_docker_resource_limits() {
-            cmd.arg("--memory").arg(memory_limit).arg("--cpus").arg(cpu_limit);
+            cmd.arg("--memory")
+                .arg(memory_limit)
+                .arg("--cpus")
+                .arg(cpu_limit);
         }
 
         let output = cmd
@@ -557,14 +574,16 @@ pub fn verify_from_image(
 
     println!("Workdir: {}", workdir);
 
-
     let container_id = {
         let mut cmd = std::process::Command::new("docker");
-            cmd.args(["run", "--rm", "-dit"]);
-            cmd.stderr(Stdio::inherit());
+        cmd.args(["run", "--rm", "-dit"]);
+        cmd.stderr(Stdio::inherit());
 
         if let Some((memory_limit, cpu_limit)) = get_docker_resource_limits() {
-            cmd.arg("--memory").arg(memory_limit).arg("--cpus").arg(cpu_limit);
+            cmd.arg("--memory")
+                .arg(memory_limit)
+                .arg("--cpus")
+                .arg(cpu_limit);
         }
 
         let output = cmd
@@ -676,6 +695,8 @@ pub async fn verify_from_repo(
         .await?;
         return Ok(());
     }
+    // Create a Vec to store solana-verify args
+    let mut args: Vec<&str> = Vec::new();
 
     // Get source code from repo_url
     let base_name = std::process::Command::new("basename")
@@ -711,7 +732,7 @@ pub async fn verify_from_repo(
         .output()?;
 
     // Checkout a specific commit hash, if provided
-    if let Some(commit_hash) = commit_hash {
+    if let Some(commit_hash) = commit_hash.as_ref() {
         let result = std::process::Command::new("git")
             .args(["-C", &verify_tmp_root_path])
             .args(["checkout", &commit_hash])
@@ -727,13 +748,18 @@ pub async fn verify_from_repo(
         }
     }
 
+    if !relative_mount_path.is_empty() {
+        args.push("--mount-path");
+        args.push(&relative_mount_path);
+    }
     // Get the absolute build path to the solana program directory to build inside docker
-    let mount_path = PathBuf::from(verify_tmp_root_path.clone()).join(relative_mount_path);
+    let mount_path = PathBuf::from(verify_tmp_root_path.clone()).join(&relative_mount_path);
     println!("Build path: {:?}", mount_path);
 
+    args.push("--library-name");
     let library_name = match library_name_opt {
         Some(p) => p,
-        None => { 
+        None => {
                 std::process::Command::new("find")
                     .args([mount_path.to_str().unwrap(), "-name", "Cargo.toml"])
                     .output()
@@ -772,16 +798,33 @@ pub async fn verify_from_repo(
                     })?
         }
     };
+    args.push(&library_name);
     println!("Verifying program: {}", library_name);
+
+    if let Some(base_image) = &base_image {
+        args.push("--base-image");
+        args.push(base_image);
+    }
+
+    if bpf_flag {
+        args.push("--bpf");
+    }
+
+    if !cargo_args.is_empty() {
+        args.push("--");
+        for arg in &cargo_args {
+            args.push(arg);
+        }
+    }
 
     let result = build_and_verify_repo(
         mount_path.to_str().unwrap().to_string(),
-        base_image,
+        base_image.clone(),
         bpf_flag,
-        library_name,
+        library_name.clone(),
         connection_url,
         program_id,
-        cargo_args,
+        cargo_args.clone(),
         container_id_opt,
     );
 
@@ -797,6 +840,17 @@ pub async fn verify_from_repo(
 
         if build_hash == program_hash {
             println!("Program hash matches ✅");
+            let x = upload_program(
+                repo_url,
+                &commit_hash.clone(),
+                args.iter().map(|&s| s.into()).collect(),
+                program_id,
+            )
+            .await;
+            if x.is_err() {
+                println!("Error uploading program: {:?}", x);
+                exit(1);
+            }
         } else {
             println!("Program hashes do not match ❌");
         }
