@@ -1,7 +1,7 @@
 use anyhow::anyhow;
 use cargo_lock::Lockfile;
 use cargo_toml::Manifest;
-use clap::{Parser, Subcommand};
+use clap::{App, Arg, SubCommand};
 use signal_hook::{
     consts::{SIGINT, SIGTERM},
     iterator::Signals,
@@ -43,107 +43,6 @@ pub fn get_network(network_str: &str) -> &str {
     }
 }
 
-#[derive(Parser, Debug)]
-#[clap(author = "Ellipsis", version, about)]
-struct Arguments {
-    #[clap(subcommand)]
-    subcommand: SubCommand,
-    /// Optionally include your RPC endpoint. Use "local", "dev", "main" for default endpoints. Defaults to your Solana CLI config file.
-    #[clap(global = true, short, long)]
-    url: Option<String>,
-}
-
-#[derive(Subcommand, Debug)]
-enum SubCommand {
-    /// Deterministically build the program in an Docker container
-    Build {
-        /// Path to mount to the docker image
-        mount_directory: Option<String>,
-        /// Which binary file to build (applies to repositories with multiple programs)
-        #[clap(long)]
-        library_name: Option<String>,
-        /// Optionally specify a custom base docker image to use for building the program repository
-        #[clap(short, long)]
-        base_image: Option<String>,
-        /// If the program requires cargo build-bpf (instead of cargo build-sbf), as for anchor program, set this flag
-        #[clap(long, default_value = "false")]
-        bpf: bool,
-        /// Arguments to pass to the underlying `cargo build-bpf` command
-        #[clap(required = false, last = true)]
-        cargo_args: Vec<String>,
-    },
-    /// Verifies a cached build from a docker image
-    VerifyFromImage {
-        /// Path to the executable solana program within the source code repository in the docker image
-        #[clap(short, long)]
-        executable_path_in_image: String,
-        /// Image that contains the source code to be verified
-        #[clap(short, long)]
-        image: String,
-        /// The Program ID of the program to verify
-        #[clap(short, long)]
-        program_id: Pubkey,
-        /// Verify in current directory
-        #[clap(long, default_value = "false")]
-        current_dir: bool,
-    },
-    /// Get the hash of a program binary from an executable file
-    GetExecutableHash {
-        /// Path to the executable solana program
-        filepath: String,
-    },
-    /// Get the hash of a program binary from the deployed on-chain program
-    GetProgramHash {
-        /// The Program ID of the program to verify
-        program_id: Pubkey,
-    },
-    /// Get the hash of a program binary from the deployed buffer address
-    GetBufferHash {
-        /// Address of the buffer account containing the deployed program data
-        buffer_address: Pubkey,
-    },
-    /// Builds and verifies a program from a given repository URL and a program ID
-    VerifyFromRepo {
-        /// Send the verify command to a remote machine
-        #[clap(long, default_value = "false")]
-        remote: bool,
-        /// Relative path to the root directory or the source code repository from which to build the program
-        /// This should be the directory that contains the workspace Cargo.toml and the Cargo.lock file
-        #[clap(long, default_value = "")]
-        mount_path: String,
-        /// The HTTPS URL of the repo to clone
-        repo_url: String,
-        /// Optional commit hash to checkout
-        #[clap(long)]
-        commit_hash: Option<String>,
-        /// The Program ID of the program to verify
-        #[clap(long)]
-        program_id: Pubkey,
-        /// Optionally specify a custom base docker image to use for building the program repository
-        #[clap(short, long)]
-        base_image: Option<String>,
-        /// If the repo_url points to a repo that contains multiple programs, specify the name of the library name of the program to
-        /// build and verify. You will also need to specify the library_name if the program is not part of the top-level Cargo.toml
-        /// Otherwise it will be inferred from the Cargo.toml file
-        #[clap(long)]
-        library_name: Option<String>,
-        /// If the program requires cargo build-bpf (instead of cargo build-sbf), as for an Anchor program, set this flag
-        #[clap(long, default_value = "false")]
-        bpf: bool,
-        /// Verify in current directory
-        #[clap(long, default_value = "false")]
-        current_dir: bool,
-        /// Arguments to pass to the underlying `cargo build-bpf` command
-        #[clap(required = false, last = true)]
-        cargo_args: Vec<String>,
-    },
-    Close {
-        /// Close the Otter Verify PDA
-        #[clap(long)]
-        program_id: Pubkey,
-    },
-}
-
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     // Handle SIGTERM and SIGINT gracefully by stopping the docker container
@@ -161,82 +60,153 @@ async fn main() -> anyhow::Result<()> {
         }
     });
 
-    let args = Arguments::parse();
-    let res = match args.subcommand {
-        SubCommand::Build {
-            // mount directory
-            mount_directory,
-            library_name,
-            base_image,
-            bpf: bpf_flag,
-            cargo_args,
-        } => build(
-            mount_directory,
-            library_name,
-            base_image,
-            bpf_flag,
-            cargo_args,
-            &mut container_id,
-        ),
-        SubCommand::VerifyFromImage {
-            executable_path_in_image: executable_path,
-            image,
-            program_id,
-            current_dir,
-        } => verify_from_image(
-            executable_path,
-            image,
-            args.url,
-            program_id,
-            current_dir,
-            &mut temp_dir,
-            &mut container_id,
-        ),
-        SubCommand::GetExecutableHash { filepath } => {
-            let program_hash = get_file_hash(&filepath)?;
-            println!("{}", program_hash);
-            Ok(())
-        }
-        SubCommand::GetBufferHash { buffer_address } => {
-            let buffer_hash = get_buffer_hash(args.url, buffer_address)?;
-            println!("{}", buffer_hash);
-            Ok(())
-        }
-        SubCommand::GetProgramHash { program_id } => {
-            let program_hash = get_program_hash(args.url, program_id)?;
-            println!("{}", program_hash);
-            Ok(())
-        }
-        SubCommand::VerifyFromRepo {
-            remote,
-            mount_path,
-            repo_url,
-            commit_hash,
-            program_id,
-            base_image,
-            library_name,
-            bpf: bpf_flag,
-            cargo_args,
-            current_dir,
-        } => {
-            verify_from_repo(
-                remote,
-                mount_path,
-                args.url,
-                repo_url,
-                commit_hash,
-                program_id,
-                base_image,
-                library_name,
-                bpf_flag,
-                cargo_args,
+    let matches = App::new("solana-verifier")
+        .author("Ellipsis")
+        .version("0.1.0")
+        .about("Solana Verifiable Build Tool")
+        .arg(Arg::with_name("url")
+            .short("u")
+            .long("url")
+            .global(true)
+            .takes_value(true)
+            .help("Optionally include your RPC endpoint. Defaults to Solana CLI config file"))
+        .subcommand(SubCommand::with_name("build")
+            .about("Deterministically build the program in a Docker container")
+            .arg(Arg::with_name("mount_directory")
+                .help("Path to mount to the docker image")
+                .takes_value(true))
+            .arg(Arg::with_name("library_name")
+                .long("library_name")
+                .takes_value(true)
+                .help("Which binary file to build"))
+            .arg(Arg::with_name("base_image")
+                .short("b")
+                .long("base_image")
+                .takes_value(true)
+                .help("Optionally specify a custom base docker image to use for building"))
+            .arg(Arg::with_name("bpf")
+                .long("bpf")
+                .help("If the program requires cargo build-bpf (instead of cargo build-sbf), set this flag"))
+            .arg(Arg::with_name("cargo_args")
+                .multiple(true)
+                .last(true)
+                .help("Arguments to pass to the underlying `cargo build-bpf` command")))
+        .subcommand(SubCommand::with_name("verifyfromimage")
+            .about("Verifies a cached build from a docker image")
+            .arg(Arg::with_name("executable_path_in_image")
+                .short("e")
+                .long("executable_path_in_image")
+                .takes_value(true)
+                .required(true)
+                .help("Path to the executable solana program within the source code repository in the docker image"))
+            .arg(Arg::with_name("image")
+                .short("i")
+                .long("image")
+                .takes_value(true)
+                .required(true)
+                .help("Image that contains the source code to be verified"))
+            .arg(Arg::with_name("program_id")
+                .short("p")
+                .long("program_id")
+                .takes_value(true)
+                .required(true)
+                .help("The Program ID of the program to verify"))
+            .arg(Arg::with_name("current_dir")
+                .long("current_dir")
+                .help("Verify in current directory")))
+        .subcommand(SubCommand::with_name("getexecutablehash")
+            .about("Get the hash of a program binary from an executable file")
+            .arg(Arg::with_name("filepath")
+                .required(true)
+                .help("Path to the executable solana program")))
+        .subcommand(SubCommand::with_name("getprogramhash")
+            .about("Get the hash of a program binary from the deployed on-chain program")
+            .arg(Arg::with_name("program_id")
+                .required(true)
+                .help("The Program ID of the program to verify")))
+        .subcommand(SubCommand::with_name("getbufferhash")
+            .about("Get the hash of a program binary from the deployed buffer address")
+            .arg(Arg::with_name("buffer_address")
+                .required(true)
+                .help("Address of the buffer account containing the deployed program data")))
+        .subcommand(SubCommand::with_name("verifyfromrepo")
+            .about("Builds and verifies a program from a given repository URL and a program ID")
+            .arg(Arg::with_name("remote")
+                .long("remote")
+                .help("Send the verify command to a remote machine")
+                .default_value("false")
+                .takes_value(false))
+            .arg(Arg::with_name("mount_path")
+                .long("mount_path")
+                .takes_value(true)
+                .default_value("")
+                .help("Relative path to the root directory or the source code repository from which to build the program"))
+            .arg(Arg::with_name("repo_url")
+                .required(true)
+                .help("The HTTPS URL of the repo to clone"))
+            .arg(Arg::with_name("commit_hash")
+                .long("commit_hash")
+                .takes_value(true)
+                .help("Optional commit hash to checkout"))
+            .arg(Arg::with_name("program_id")
+                .long("program_id")
+                .required(true)
+                .takes_value(true)
+                .help("The Program ID of the program to verify"))
+            .arg(Arg::with_name("base_image")
+                .short("b")
+                .long("base_image")
+                .takes_value(true)
+                .help("Optionally specify a custom base docker image to use for building"))
+            .arg(Arg::with_name("library_name")
+                .long("library_name")
+                .takes_value(true)
+                .help("Specify the name of the library to build and verify"))
+            .arg(Arg::with_name("bpf")
+                .long("bpf")
+                .help("If the program requires cargo build-bpf (instead of cargo build-sbf), set this flag"))
+            .arg(Arg::with_name("current_dir")
+                .long("current_dir")
+                .help("Verify in current directory"))
+            .arg(Arg::with_name("cargo_args")
+                .multiple(true)
+                .last(true)
+                .help("Arguments to pass to the underlying `cargo build-bpf` command")))
+        .subcommand(SubCommand::with_name("close")
+            .about("Close the Otter Verify PDA")
+            .arg(Arg::with_name("program_id")
+                .long("program_id")
+                .required(true)
+                .takes_value(true)
+                .help("Close the Otter Verify PDA")))
+        .get_matches();
+
+    let res = match matches.subcommand() {
+        ("build", Some(sub_m)) => {
+            let mount_directory = sub_m.value_of("mount_directory").map(|s| s.to_string());
+            let library_name = sub_m.value_of("library_name").map(|s| s.to_string());
+            let base_image = sub_m.value_of("base_image").map(|s| s.to_string());
+            let bpf_flag = sub_m.is_present("bpf");
+            let cargo_args = sub_m.values_of("cargo_args").unwrap_or_default().map(|s| s.to_string()).collect();
+            build(mount_directory, library_name, base_image, bpf_flag, cargo_args, &mut container_id)
+        },
+        ("verifyfromimage", Some(sub_m)) => {
+            let executable_path = sub_m.value_of("executable_path_in_image").unwrap();
+            let image = sub_m.value_of("image").unwrap();
+            let program_id = sub_m.value_of("program_id").unwrap();
+            let current_dir = sub_m.is_present("current_dir");
+            verify_from_image(
+                executable_path.to_string(),
+                image.to_string(),
+                matches.value_of("url").map(|s| s.to_string()),
+                Pubkey::try_from(program_id)?,
                 current_dir,
-                &mut container_id,
                 &mut temp_dir,
+                &mut container_id,
             )
-            .await
-        }
-        SubCommand::Close { program_id } => process_close(program_id).await,
+        },
+        // Handle other subcommands in a similar manner, for now let's panic
+        _ => panic!("Unknown subcommand"),
     };
 
     if caught_signal.load(Ordering::Relaxed) || res.is_err() {

@@ -8,7 +8,7 @@ license = "MIT"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-clap = { version = "4.1.4", features = ["derive"] } # version of v1.18 does not support derive
+clap = "2.33.1" # version of v1.18 does not support derive
 anyhow = "1.0.79"
 tokio = { version = "1.29.1", features = ["full"] }
 solana-client = "=1.18.23"
