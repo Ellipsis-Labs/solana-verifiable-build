@@ -2,8 +2,7 @@ use anyhow::anyhow;
 use solana_cli_config::Config;
 use solana_client::rpc_client::RpcClient;
 use std::{
-    io::{self, Read, Write},
-    str::FromStr,
+    io::{self, Read, Write}, str::FromStr
 };
 
 use borsh::{to_vec, BorshDeserialize, BorshSerialize};
@@ -132,11 +131,17 @@ pub async fn upload_program(
     commit: &Option<String>,
     args: Vec<String>,
     program_address: Pubkey,
+    connection_url: Option<String>,
 ) -> anyhow::Result<()> {
     if prompt_user_input("Do you want to update it to On-Chain Program ?. (Y/n) ") {
         println!("Uploading the program verification params to the Solana blockchain...");
         
-        let cli_config = get_user_config()?;
+        let mut cli_config = get_user_config()?;
+
+        if connection_url.is_some() {
+            cli_config.1 = RpcClient::new(connection_url.unwrap());
+        }
+        
         let signer_pubkey = cli_config.0.pubkey();
         let connection = cli_config.1;
         let rpc_url = connection.url();

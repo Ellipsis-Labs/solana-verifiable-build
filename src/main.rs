@@ -838,7 +838,7 @@ pub async fn verify_from_repo(
         base_image.clone(),
         bpf_flag,
         library_name.clone(),
-        connection_url,
+        connection_url.clone(),
         program_id,
         cargo_args.clone(),
         container_id_opt,
@@ -861,6 +861,7 @@ pub async fn verify_from_repo(
                 &commit_hash.clone(),
                 args.iter().map(|&s| s.into()).collect(),
                 program_id,
+                connection_url,
             )
             .await;
             if x.is_err() {
