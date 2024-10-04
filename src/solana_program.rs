@@ -136,19 +136,21 @@ pub async fn upload_program(
     if prompt_user_input("Do you want to update it to On-Chain Program ?. (Y/n) ") {
         println!("Uploading the program verification params to the Solana blockchain...");
         
-        let mut cli_config = get_user_config()?;
-
-        if connection_url.is_some() {
-            println!("Using custom connection URL: {}", connection_url.as_ref().unwrap());
-            cli_config.1 = RpcClient::new(connection_url.as_ref().unwrap());
-        }
+        let cli_config = get_user_config()?;
         
         let signer_pubkey = cli_config.0.pubkey();
-        let connection = cli_config.1;
+        let connection =  match connection_url.is_some() {
+            true => {
+                println!("Using custom connection url: {}", connection_url.as_ref().unwrap());
+                RpcClient::new(connection_url.unwrap())
+            },
+            false => cli_config.1
+        };
         let rpc_url = connection.url();
         
         let last_deployed_slot = get_last_deployed_slot(&rpc_url, &program_address.to_string()).await
         .map_err(|err| anyhow!("Unable to get last deployed slot: {}", err))?;
+        println!("Last deployed slot: {}", last_deployed_slot);
 
         let input_params = InputParams {
             version: env!("CARGO_PKG_VERSION").to_string(),
