@@ -190,7 +190,7 @@ async fn main() -> anyhow::Result<()> {
             let cargo_args = sub_m.values_of("cargo_args").unwrap_or_default().map(|s| s.to_string()).collect();
             build(mount_directory, library_name, base_image, bpf_flag, cargo_args, &mut container_id)
         },
-        ("verifyfromimage", Some(sub_m)) => {
+        ("verify-from-image", Some(sub_m)) => {
             let executable_path = sub_m.value_of("executable_path_in_image").unwrap();
             let image = sub_m.value_of("image").unwrap();
             let program_id = sub_m.value_of("program_id").unwrap();
@@ -205,25 +205,25 @@ async fn main() -> anyhow::Result<()> {
                 &mut container_id,
             )
         },
-        ("getexecutablehash", Some(sub_m)) => {
+        ("get-executable-hash", Some(sub_m)) => {
             let filepath = sub_m.value_of("filepath").map(|s| s.to_string()).unwrap();
             let program_hash = get_file_hash(&filepath)?;
             println!("{}", program_hash);
             Ok(())
         },
-        ("getbufferhash", Some(sub_m)) => {
+        ("get-buffer-hash", Some(sub_m)) => {
             let buffer_address = sub_m.value_of("buffer_address").unwrap();
             let buffer_hash = get_buffer_hash(matches.value_of("url").map(|s| s.to_string()), Pubkey::try_from(buffer_address)?)?;
             println!("{}", buffer_hash);
             Ok(())
         },
-        ("getprogramhash", Some(sub_m)) => {
+        ("get-program-hash", Some(sub_m)) => {
             let program_id = sub_m.value_of("program_id").unwrap();
             let program_hash = get_program_hash(matches.value_of("url").map(|s| s.to_string()), Pubkey::try_from(program_id)?)?;
             println!("{}", program_hash);
             Ok(())
         },
-        ("verifyfromrepo", Some(sub_m)) => {
+        ("verify-from-repo", Some(sub_m)) => {
             let remote = sub_m.is_present("remote");
             let mount_path = sub_m.value_of("mount_path").map(|s| s.to_string()).unwrap();
             let repo_url = sub_m.value_of("repo_url").map(|s| s.to_string()).unwrap();
