@@ -82,11 +82,12 @@ fn process_otter_verify_ixs(
     pda_account: Pubkey,
     program_address: Pubkey,
     instruction: OtterVerifyInstructions,
+    rpc_client: RpcClient,
 ) -> anyhow::Result<()> {
     let user_config = get_user_config()?;
     let signer = user_config.0;
     let signer_pubkey = signer.pubkey();
-    let connection = user_config.1;
+    let connection = rpc_client;
 
     let ix_data = if instruction != OtterVerifyInstructions::Close {
         create_ix_data(params, &instruction)
@@ -150,7 +151,6 @@ pub async fn upload_program(
         
         let last_deployed_slot = get_last_deployed_slot(&rpc_url, &program_address.to_string()).await
         .map_err(|err| anyhow!("Unable to get last deployed slot: {}", err))?;
-        println!("Last deployed slot: {}", last_deployed_slot);
 
         let input_params = InputParams {
             version: env!("CARGO_PKG_VERSION").to_string(),
@@ -187,6 +187,7 @@ pub async fn upload_program(
                 pda_account_1,
                 program_address,
                 OtterVerifyInstructions::Update,
+                connection,
             )?;
         } else if connection.get_account(&pda_account_2).is_ok() {
             let wanna_create_new_pda = prompt_user_input(
@@ -198,6 +199,7 @@ pub async fn upload_program(
                     pda_account_1,
                     program_address,
                     OtterVerifyInstructions::Initialize,
+                    connection,
                 )?;
             }
             return Ok(());
@@ -208,6 +210,7 @@ pub async fn upload_program(
                 pda_account_1,
                 program_address,
                 OtterVerifyInstructions::Initialize,
+                connection,
             )?;
         }
     } else {
@@ -249,6 +252,7 @@ pub async fn process_close(program_address: Pubkey) -> anyhow::Result<()> {
             pda_account,
             program_address,
             OtterVerifyInstructions::Close,
+            connection,
         )?;
     } else {
         return Err(anyhow!(
