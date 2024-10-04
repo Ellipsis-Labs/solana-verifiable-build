@@ -72,30 +72,30 @@ async fn main() -> anyhow::Result<()> {
             .help("Optionally include your RPC endpoint. Defaults to Solana CLI config file"))
         .subcommand(SubCommand::with_name("build")
             .about("Deterministically build the program in a Docker container")
-            .arg(Arg::with_name("mount_directory")
+            .arg(Arg::with_name("mount-directory")
                 .help("Path to mount to the docker image")
                 .takes_value(true))
-            .arg(Arg::with_name("library_name")
-                .long("library_name")
+            .arg(Arg::with_name("library-name")
+                .long("library-name")
                 .takes_value(true)
                 .help("Which binary file to build"))
-            .arg(Arg::with_name("base_image")
+            .arg(Arg::with_name("base-image")
                 .short("b")
-                .long("base_image")
+                .long("base-image")
                 .takes_value(true)
                 .help("Optionally specify a custom base docker image to use for building"))
             .arg(Arg::with_name("bpf")
                 .long("bpf")
                 .help("If the program requires cargo build-bpf (instead of cargo build-sbf), set this flag"))
-            .arg(Arg::with_name("cargo_args")
+            .arg(Arg::with_name("cargo-args")
                 .multiple(true)
                 .last(true)
                 .help("Arguments to pass to the underlying `cargo build-bpf` command")))
         .subcommand(SubCommand::with_name("verify-from-image")
             .about("Verifies a cached build from a docker image")
-            .arg(Arg::with_name("executable_path_in_image")
+            .arg(Arg::with_name("executable-path-in-image")
                 .short("e")
-                .long("executable_path_in_image")
+                .long("executable-path-in-image")
                 .takes_value(true)
                 .required(true)
                 .help("Path to the executable solana program within the source code repository in the docker image"))
@@ -105,14 +105,14 @@ async fn main() -> anyhow::Result<()> {
                 .takes_value(true)
                 .required(true)
                 .help("Image that contains the source code to be verified"))
-            .arg(Arg::with_name("program_id")
+            .arg(Arg::with_name("program-id")
                 .short("p")
-                .long("program_id")
+                .long("program-id")
                 .takes_value(true)
                 .required(true)
                 .help("The Program ID of the program to verify"))
-            .arg(Arg::with_name("current_dir")
-                .long("current_dir")
+            .arg(Arg::with_name("current-dir")
+                .long("current-dir")
                 .help("Verify in current directory")))
         .subcommand(SubCommand::with_name("get-executable-hash")
             .about("Get the hash of a program binary from an executable file")
@@ -121,12 +121,12 @@ async fn main() -> anyhow::Result<()> {
                 .help("Path to the executable solana program")))
         .subcommand(SubCommand::with_name("get-program-hash")
             .about("Get the hash of a program binary from the deployed on-chain program")
-            .arg(Arg::with_name("program_id")
+            .arg(Arg::with_name("program-id")
                 .required(true)
                 .help("The Program ID of the program to verify")))
         .subcommand(SubCommand::with_name("get-buffer-hash")
             .about("Get the hash of a program binary from the deployed buffer address")
-            .arg(Arg::with_name("buffer_address")
+            .arg(Arg::with_name("buffer-address")
                 .required(true)
                 .help("Address of the buffer account containing the deployed program data")))
         .subcommand(SubCommand::with_name("verify-from-repo")
@@ -136,46 +136,46 @@ async fn main() -> anyhow::Result<()> {
                 .help("Send the verify command to a remote machine")
                 .default_value("false")
                 .takes_value(false))
-            .arg(Arg::with_name("mount_path")
-                .long("mount_path")
+            .arg(Arg::with_name("mount-path")
+                .long("mount-path")
                 .takes_value(true)
                 .default_value("")
                 .help("Relative path to the root directory or the source code repository from which to build the program"))
-            .arg(Arg::with_name("repo_url")
+            .arg(Arg::with_name("repo-url")
                 .required(true)
                 .help("The HTTPS URL of the repo to clone"))
-            .arg(Arg::with_name("commit_hash")
-                .long("commit_hash")
+            .arg(Arg::with_name("commit-hash")
+                .long("commit-hash")
                 .takes_value(true)
                 .help("Optional commit hash to checkout"))
-            .arg(Arg::with_name("program_id")
-                .long("program_id")
+            .arg(Arg::with_name("program-id")
+                .long("program-id")
                 .required(true)
                 .takes_value(true)
                 .help("The Program ID of the program to verify"))
-            .arg(Arg::with_name("base_image")
+            .arg(Arg::with_name("base-image")
                 .short("b")
-                .long("base_image")
+                .long("base-image")
                 .takes_value(true)
                 .help("Optionally specify a custom base docker image to use for building"))
-            .arg(Arg::with_name("library_name")
-                .long("library_name")
+            .arg(Arg::with_name("library-name")
+                .long("library-name")
                 .takes_value(true)
                 .help("Specify the name of the library to build and verify"))
             .arg(Arg::with_name("bpf")
                 .long("bpf")
                 .help("If the program requires cargo build-bpf (instead of cargo build-sbf), set this flag"))
-            .arg(Arg::with_name("current_dir")
-                .long("current_dir")
+            .arg(Arg::with_name("current-dir")
+                .long("current-dir")
                 .help("Verify in current directory"))
-            .arg(Arg::with_name("cargo_args")
+            .arg(Arg::with_name("cargo-args")
                 .multiple(true)
                 .last(true)
                 .help("Arguments to pass to the underlying `cargo build-bpf` command")))
         .subcommand(SubCommand::with_name("close")
             .about("")
-            .arg(Arg::with_name("program_id")
-                .long("program_id")
+            .arg(Arg::with_name("program-id")
+                .long("program-id")
                 .required(true)
                 .takes_value(true)
                 .help("")))
@@ -183,18 +183,18 @@ async fn main() -> anyhow::Result<()> {
 
     let res = match matches.subcommand() {
         ("build", Some(sub_m)) => {
-            let mount_directory = sub_m.value_of("mount_directory").map(|s| s.to_string());
-            let library_name = sub_m.value_of("library_name").map(|s| s.to_string());
-            let base_image = sub_m.value_of("base_image").map(|s| s.to_string());
+            let mount_directory = sub_m.value_of("mount-directory").map(|s| s.to_string());
+            let library_name = sub_m.value_of("library-name").map(|s| s.to_string());
+            let base_image = sub_m.value_of("base-image").map(|s| s.to_string());
             let bpf_flag = sub_m.is_present("bpf");
-            let cargo_args = sub_m.values_of("cargo_args").unwrap_or_default().map(|s| s.to_string()).collect();
+            let cargo_args = sub_m.values_of("cargo-args").unwrap_or_default().map(|s| s.to_string()).collect();
             build(mount_directory, library_name, base_image, bpf_flag, cargo_args, &mut container_id)
         },
         ("verify-from-image", Some(sub_m)) => {
-            let executable_path = sub_m.value_of("executable_path_in_image").unwrap();
+            let executable_path = sub_m.value_of("executable-path-in-image").unwrap();
             let image = sub_m.value_of("image").unwrap();
-            let program_id = sub_m.value_of("program_id").unwrap();
-            let current_dir = sub_m.is_present("current_dir");
+            let program_id = sub_m.value_of("program-id").unwrap();
+            let current_dir = sub_m.is_present("current-dir");
             verify_from_image(
                 executable_path.to_string(),
                 image.to_string(),
@@ -212,28 +212,28 @@ async fn main() -> anyhow::Result<()> {
             Ok(())
         },
         ("get-buffer-hash", Some(sub_m)) => {
-            let buffer_address = sub_m.value_of("buffer_address").unwrap();
+            let buffer_address = sub_m.value_of("buffer-address").unwrap();
             let buffer_hash = get_buffer_hash(matches.value_of("url").map(|s| s.to_string()), Pubkey::try_from(buffer_address)?)?;
             println!("{}", buffer_hash);
             Ok(())
         },
         ("get-program-hash", Some(sub_m)) => {
-            let program_id = sub_m.value_of("program_id").unwrap();
+            let program_id = sub_m.value_of("program-id").unwrap();
             let program_hash = get_program_hash(matches.value_of("url").map(|s| s.to_string()), Pubkey::try_from(program_id)?)?;
             println!("{}", program_hash);
             Ok(())
         },
         ("verify-from-repo", Some(sub_m)) => {
             let remote = sub_m.is_present("remote");
-            let mount_path = sub_m.value_of("mount_path").map(|s| s.to_string()).unwrap();
-            let repo_url = sub_m.value_of("repo_url").map(|s| s.to_string()).unwrap();
-            let commit_hash = sub_m.value_of("commit_hash").map(|s| s.to_string());
-            let program_id = sub_m.value_of("program_id").unwrap();
-            let base_image = sub_m.value_of("base_image").map(|s| s.to_string());
-            let library_name = sub_m.value_of("library_name").map(|s| s.to_string());
+            let mount_path = sub_m.value_of("mount-path").map(|s| s.to_string()).unwrap();
+            let repo_url = sub_m.value_of("repo-url").map(|s| s.to_string()).unwrap();
+            let commit_hash = sub_m.value_of("commit-hash").map(|s| s.to_string());
+            let program_id = sub_m.value_of("program-id").unwrap();
+            let base_image = sub_m.value_of("base-image").map(|s| s.to_string());
+            let library_name = sub_m.value_of("library-name").map(|s| s.to_string());
             let bpf_flag = sub_m.is_present("bpf");
-            let current_dir = sub_m.is_present("current_dir");
-            let cargo_args: Vec<String> = sub_m.values_of("cargo_args").unwrap_or_default().map(|s| s.to_string()).collect();
+            let current_dir = sub_m.is_present("current-dir");
+            let cargo_args: Vec<String> = sub_m.values_of("cargo-args").unwrap_or_default().map(|s| s.to_string()).collect();
 
             verify_from_repo(
                 remote,
