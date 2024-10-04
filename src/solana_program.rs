@@ -139,7 +139,8 @@ pub async fn upload_program(
         let mut cli_config = get_user_config()?;
 
         if connection_url.is_some() {
-            cli_config.1 = RpcClient::new(connection_url.unwrap());
+            println!("Using custom connection URL: {}", connection_url.as_ref().unwrap());
+            cli_config.1 = RpcClient::new(connection_url.as_ref().unwrap());
         }
         
         let signer_pubkey = cli_config.0.pubkey();
