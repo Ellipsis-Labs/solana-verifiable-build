@@ -140,14 +140,23 @@ pub async fn upload_program(
         let cli_config = get_user_config()?;
         
         let signer_pubkey = cli_config.0.pubkey();
-        let connection =  match connection_url.is_some() {
-            true => {
-                println!("Using custom connection url: {}", connection_url.as_ref().unwrap());
-                RpcClient::new(connection_url.unwrap())
+        let connection = match connection_url.as_deref() {
+            Some("m") => {
+                RpcClient::new("https://api.mainnet-beta.solana.com")
             },
-            false => cli_config.1
+            Some("d") => {
+                RpcClient::new("https://api.devnet.solana.com")
+            },
+            Some("l") => {
+                RpcClient::new("http://localhost:8899")
+            },
+            Some(url) => {
+                RpcClient::new(url)
+            },
+            None => cli_config.1,
         };
         let rpc_url = connection.url();
+        println!("Using connection url: {}", rpc_url);
         
         let last_deployed_slot = get_last_deployed_slot(&rpc_url, &program_address.to_string()).await
         .map_err(|err| anyhow!("Unable to get last deployed slot: {}", err))?;
