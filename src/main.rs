@@ -252,7 +252,7 @@ async fn main() -> anyhow::Result<()> {
             ).await
         }
         // Handle other subcommands in a similar manner, for now let's panic
-        _ => panic!("Unknown subcommand"),
+        _ => panic!("Unknown subcommand: {:?}\nUse '--help' to see available commands", matches.subcommand().0)
     };
 
     if caught_signal.load(Ordering::Relaxed) || res.is_err() {
@@ -269,15 +269,15 @@ async fn main() -> anyhow::Result<()> {
             }
         }
         if let Some(temp_dir) = temp_dir.clone().take() {
-            println!("Removing temp dir {}", temp_dir);
+            println!("Removing temporary directory {}", temp_dir);
             if std::process::Command::new("rm")
                 .args(["-rf", &temp_dir])
                 .output()
                 .is_err()
             {
-                println!("Failed to remove temp dir");
+                println!("Failed to remove temporary directory");
             } else {
-                println!("Removed temp dir {}", temp_dir);
+                println!("Removed temporary directory {}", temp_dir);
             }
         }
     }

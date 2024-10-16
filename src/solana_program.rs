@@ -62,7 +62,7 @@ fn create_ix_data(params: &InputParams, ix: &OtterVerifyInstructions) -> Vec<u8>
 fn get_user_config() -> anyhow::Result<(Keypair, RpcClient)> {
     let config_file = solana_cli_config::CONFIG_FILE
         .as_ref()
-        .ok_or_else(|| anyhow!("unable to get config file path"))?;
+        .ok_or_else(|| anyhow!("Unable to get config file path"))?;
     let cli_config: Config = Config::load(config_file)?;
 
     let signer = solana_clap_utils::keypair::keypair_from_path(
@@ -134,7 +134,7 @@ pub async fn upload_program(
     program_address: Pubkey,
     connection_url: Option<String>,
 ) -> anyhow::Result<()> {
-    if prompt_user_input("Do you want to update it to On-Chain Program ?. (Y/n) ") {
+    if prompt_user_input("Do you want to upload the program verification to the Solana Blockchain? (y/n) ") {
         println!("Uploading the program verification params to the Solana blockchain...");
         
         let cli_config = get_user_config()?;
