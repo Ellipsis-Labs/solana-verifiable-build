@@ -161,15 +161,22 @@ pub async fn send_job_to_remote(
                 }
             }
         }
+        let url = format!("https://verify.osec.io/status/{}", program_id);
+        println!("Check the status at: {}", url);
 
         Ok(())
     } else if response.status() == 409 {
         let response = response.json::<ErrorResponse>().await?;
         eprintln!("Error: {}", response.error.as_str());
+        let url = format!("https://verify.osec.io/status/{}", program_id);
+        println!("Check the status at: {}", url);
         Ok(())
     } else {
         eprintln!("Encountered an error while attempting to send the job to remote");
-        Err(anyhow!("{:?}", response.text().await?))?
+        Err(anyhow!("{:?}", response.text().await?))?;
+        let url = format!("https://verify.osec.io/status/{}", program_id);
+        println!("Check the status at: {}", url);
+        Ok(())
     }
 }
 
