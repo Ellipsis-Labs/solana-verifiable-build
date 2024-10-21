@@ -40,7 +40,7 @@ jobs:
             Generated automatically by the Generate Dockerfiles workflow.
           branch: update-dockerfiles
           delete-branch: true
-          base: main
+          base: master
           labels: |
             automated pr
             dockerfiles
