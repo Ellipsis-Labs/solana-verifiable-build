@@ -11,6 +11,12 @@ jobs:
   generate-dockerfiles:
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/create-github-app-token@v1
+        id: generate-token
+        with:
+          app-id: ${{ vars.ROBO_PR_APP_ID }}
+          private-key: ${{ secrets.ROBO_PR_CLIENT_SECRET }}
+
       - name: Checkout repository
         uses: actions/checkout@v4
 
@@ -32,14 +38,10 @@ jobs:
       - name: Run generate_dockerfiles.py
         run: uv run generate_dockerfiles.py
 
-      - run: |
-          git config user.name github-actions
-          git config user.email github-actions@github.com
-
       - name: Create Pull Request
         uses: peter-evans/create-pull-request@v5
         with:
-          token: ${{ secrets.PAT_FOR_ACTIONS }}
+          token: ${{ steps.generate-token.outputs.token }}
           commit-message: Update Dockerfiles
           title: 'Update Dockerfiles'
           body: |
