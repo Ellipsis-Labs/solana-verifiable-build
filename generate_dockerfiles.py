@@ -115,15 +115,24 @@ for release in tags:
     )
 
     path = f"docker/{release}.Dockerfile"
-    with open(path, "r") as f:
-        prev = f.read()
-
-    if prev != dockerfile:
+    
+    # Check if the file exists before trying to read it
+    if os.path.exists(path):
+        with open(path, "r") as f:
+            prev = f.read()
+        
+        if prev != dockerfile:
+            dirty_set.add(release.strip("v"))
+            print(f"{release} needs to be updated")
+    else:
+        # If the file doesn't exist, consider it as dirty
         dirty_set.add(release.strip("v"))
-        print(release)
+        print(f"{release} is new and needs to be created")
 
+    # Write the new or updated Dockerfile
     with open(path, "w") as f:
         f.write(dockerfile)
+    
     dockerfiles[release] = path
 
 print(RUST_DOCKER_IMAGESHA_MAP)
