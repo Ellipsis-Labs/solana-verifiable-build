@@ -35,8 +35,10 @@ jobs:
       - name: Create Pull Request
         uses: peter-evans/create-pull-request@v5
         with:
-          token: ${{ secrets.GITHUB_TOKEN }}
+          token: ${{ secrets.PAT_FOR_ACTIONS }}
           commit-message: Update Dockerfiles
+          committer: GitHub <noreply@github.com>
+          author: ${{ github.actor }} <${{ github.actor }}@users.noreply.github.com>
           title: 'Update Dockerfiles'
           body: |
             This PR updates the Dockerfiles in the `docker/` directory.
@@ -48,5 +50,3 @@ jobs:
           labels: |
             automated pr
             dockerfiles
-          author: github-actions[bot] <41898282+github-actions[bot]@users.noreply.github.com>
-          committer: github-actions[bot] <41898282+github-actions[bot]@users.noreply.github.com>
