@@ -37,8 +37,6 @@ jobs:
         with:
           token: ${{ secrets.PAT_FOR_ACTIONS }}
           commit-message: Update Dockerfiles
-          committer: GitHub <noreply@github.com>
-          author: ${{ github.actor }} <${{ github.actor }}@users.noreply.github.com>
           title: 'Update Dockerfiles'
           body: |
             This PR updates the Dockerfiles in the `docker/` directory.
