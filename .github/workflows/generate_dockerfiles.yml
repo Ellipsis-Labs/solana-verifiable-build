@@ -1,0 +1,46 @@
+name: Generate Dockerfiles
+
+on:
+    workflow_dispatch:
+
+jobs:
+  generate-dockerfiles:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+
+      - name: "Set up Python"
+        uses: actions/setup-python@v5
+        with:
+          python-version-file: "pyproject.toml"
+
+      - name: Install dependencies with uv
+        run: |
+          uv sync --all-extras --dev
+
+      - name: Run generate_dockerfiles.py
+        run: uv python generate_dockerfiles.py
+
+      - name: Create Pull Request
+        uses: peter-evans/create-pull-request@v5
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          commit-message: Update Dockerfiles
+          title: 'Update Dockerfiles'
+          body: |
+            This PR updates the Dockerfiles in the `docker/` directory.
+            
+            Generated automatically by the Generate Dockerfiles workflow.
+          branch: update-dockerfiles
+          delete-branch: true
+          base: main
+          labels: |
+            automated pr
+            dockerfiles
