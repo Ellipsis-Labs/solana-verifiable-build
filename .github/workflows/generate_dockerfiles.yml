@@ -26,7 +26,7 @@ jobs:
           uv sync --all-extras --dev
 
       - name: Run generate_dockerfiles.py
-        run: uv python generate_dockerfiles.py
+        run: uv run generate_dockerfiles.py
 
       - name: Create Pull Request
         uses: peter-evans/create-pull-request@v5
