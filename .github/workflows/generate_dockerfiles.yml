@@ -12,7 +12,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Install uv
         uses: astral-sh/setup-uv@v3
@@ -31,6 +31,10 @@ jobs:
 
       - name: Run generate_dockerfiles.py
         run: uv run generate_dockerfiles.py
+
+      - run: |
+          git config user.name github-actions
+          git config user.email github-actions@github.com
 
       - name: Create Pull Request
         uses: peter-evans/create-pull-request@v5
