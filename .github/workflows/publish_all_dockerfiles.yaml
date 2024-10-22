@@ -23,6 +23,8 @@ jobs:
           else
             echo "matrix=[]" >> $GITHUB_OUTPUT
           fi
+      - name: Display matrix
+        run: echo "${{ steps.set-matrix.outputs.matrix }}"
 
   push_to_registries:
     needs: detect_changes
