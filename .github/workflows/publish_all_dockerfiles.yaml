@@ -16,6 +16,8 @@ jobs:
       matrix: ${{ steps.set-matrix.outputs.matrix }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - id: set-matrix
         run: |
           CHANGED_FILES=$(git diff --name-only --diff-filter=d ${{ github.event.inputs.commit_hash }} ${{ github.sha }} | grep '^docker/v.*\.Dockerfile$' || true)
