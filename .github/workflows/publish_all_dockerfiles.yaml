@@ -1,16 +1,36 @@
-name: Publish Docker Image
+name: Publish All Docker Image
 
 on:
   workflow_dispatch:
-    inputs:
-      version:
-        description: 'Solana version to generate Dockerfile for (e.g., 1.16.0)'
-        required: true
-        type: string
+  push:
+    branches:
+      - master
+    paths:
+      - 'docker/**'
 
 jobs:
+  detect_changes:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: set-matrix
+        run: |
+          CHANGED_FILES=$(git diff --name-only ${{ github.event.before }} ${{ github.sha }} | grep '^docker/v.*\.Dockerfile$' || true)
+          echo "CHANGED_FILES=$CHANGED_FILES" >> $GITHUB_OUTPUT
+          if [ -n "$CHANGED_FILES" ]; then
+            echo "matrix=$(echo $CHANGED_FILES | jq -R -s -c 'split("\n")[:-1] | map({version: .[8:-11]})')" >> $GITHUB_OUTPUT
+          else
+            echo "matrix=[]" >> $GITHUB_OUTPUT
+          fi
+
   push_to_registries:
-    name: Push Docker image to ghcr.io
+    needs: detect_changes
+    if: ${{ needs.detect_changes.outputs.matrix != '[]' }}
+    strategy:
+      matrix: ${{fromJson(needs.detect_changes.outputs.matrix)}}
+    name: Push Docker images to ghcr.io
     runs-on: ubuntu-latest
     permissions:
       packages: write
@@ -18,6 +38,9 @@ jobs:
       attestations: write
       id-token: write
     steps:
+      - name: Report version
+        run: echo "Pushing Docker image for version ${{ matrix.version }}"
+
       - name: Check out the repo
         uses: actions/checkout@v4
 
@@ -40,11 +63,11 @@ jobs:
         uses: docker/build-push-action@3b5e8027fcad23fda98b2e3ac259d8d67585f671
         with:
           context: docker/
-          file: docker/v${{ github.event.inputs.version }}.Dockerfile
+          file: docker/v${{ matrix.version }}.Dockerfile
           push: true
           tags: |
             ${{ steps.meta.outputs.tags }}
-            ghcr.io/${{ github.repository_owner }}/solana:${{ github.event.inputs.version }}
+            ghcr.io/${{ github.repository_owner }}/solana:${{ matrix.version }}
           labels: |
             ${{ steps.meta.outputs.labels }}
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
