@@ -51,7 +51,7 @@ jobs:
             This PR updates `image_config.rs` with the latest published Docker image tags.
             
             Generated automatically by the Update Docker Image Whitelist workflow.
-          branch: update-dockerfiles
+          branch: update-image-whitelist
           delete-branch: true
           base: master
           labels: |
