@@ -1,7 +1,12 @@
 name: Update Docker Image Whitelist
 
 on:
-    workflow_dispatch:
+  workflow_dispatch:
+  push:
+    branches:
+      - master
+    paths:
+      - 'docker/**'
 
 permissions:
   contents: write
@@ -45,7 +50,7 @@ jobs:
         uses: peter-evans/create-pull-request@v5
         with:
           token: ${{ steps.generate-token.outputs.token }}
-          commit-message: Update Dockerfiles
+          commit-message: Update image whitelist
           title: 'Update Image Whitelist'
           body: |
             This PR updates `image_config.rs` with the latest published Docker image tags.
