@@ -1,11 +1,28 @@
 import requests
+import os
 
-response = requests.get(
-    "https://hub.docker.com/v2/namespaces/ellipsislabs/repositories/solana/tags?page_size=1000"
-)
+github_token = os.environ.get('GITHUB_TOKEN')
+use_ghcr = os.environ.get('USE_GHCR', 'false').lower() == 'true'
+headers = {'Authorization': f'Bearer {github_token}'}
+
+if not use_ghcr:
+    response = requests.get(
+        "https://hub.docker.com/v2/namespaces/ellipsislabs/repositories/solana/tags?page_size=1000"
+    )
+    if response.status_code != 200:
+        raise Exception(f"Failed to get Docker images: {response.status_code} {response.text}") 
+    results = response.json()["results"] 
+else:
+    response = requests.get(
+        "https://api.github.com/users/ngundotra/packages/container/solana/versions?per_page=100",
+        headers=headers
+    )
+    if response.status_code != 200:
+        raise Exception(f"Failed to get Docker images: {response.status_code} {response.text}") 
+    results = response.json()
 
 digest_map = {}
-for result in response.json()["results"]:
+for result in results:
     if result["name"] != "latest":
         try:
             major, minor, patch = list(map(int, result["name"].split(".")))
