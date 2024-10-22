@@ -1,4 +1,4 @@
-name: Generate Dockerfiles
+name: Update Docker Image Whitelist
 
 on:
     workflow_dispatch:
@@ -8,13 +8,13 @@ permissions:
   pull-requests: write
 
 jobs:
-  generate-dockerfiles:
+  update-docker-image-whitelist:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/create-github-app-token@v1
         id: generate-token
         with:
-          app-id: ${{ secrets.ROBO_PR_APP_ID }}
+          app-id: ${{ vars.ROBO_PR_APP_ID }}
           private-key: ${{ secrets.ROBO_PR_CLIENT_SECRET }}
 
       - name: Checkout repository
@@ -36,7 +36,10 @@ jobs:
           uv sync --all-extras --dev
 
       - name: Run generate_dockerfiles.py
-        run: uv run generate_dockerfiles.py
+        env:
+          USE_GHCR: "true"
+          GITHUB_TOKEN: ${{ steps.generate-token.outputs.token }}
+        run: uv run update_image_whitelist.py
 
       - name: Create Pull Request
         uses: peter-evans/create-pull-request@v5
@@ -45,9 +48,9 @@ jobs:
           commit-message: Update Dockerfiles
           title: 'Update Dockerfiles'
           body: |
-            This PR updates the Dockerfiles in the `docker/` directory.
+            This PR updates `image_config.rs` with the latest published Docker image tags.
             
-            Generated automatically by the Generate Dockerfiles workflow.
+            Generated automatically by the Update Docker Image Whitelist workflow.
           branch: update-dockerfiles
           delete-branch: true
           base: master
