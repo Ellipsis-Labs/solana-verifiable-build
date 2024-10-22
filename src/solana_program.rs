@@ -2,8 +2,7 @@ use anyhow::anyhow;
 use solana_cli_config::Config;
 use solana_client::rpc_client::RpcClient;
 use std::{
-    io::{self, Read, Write},
-    str::FromStr,
+    io::{self, Read, Write}, str::FromStr
 };
 
 use borsh::{to_vec, BorshDeserialize, BorshSerialize};
@@ -63,7 +62,7 @@ fn create_ix_data(params: &InputParams, ix: &OtterVerifyInstructions) -> Vec<u8>
 fn get_user_config() -> anyhow::Result<(Keypair, RpcClient)> {
     let config_file = solana_cli_config::CONFIG_FILE
         .as_ref()
-        .ok_or_else(|| anyhow!("unable to get config file path"))?;
+        .ok_or_else(|| anyhow!("Unable to get config file path"))?;
     let cli_config: Config = Config::load(config_file)?;
 
     let signer = solana_clap_utils::keypair::keypair_from_path(
@@ -83,11 +82,12 @@ fn process_otter_verify_ixs(
     pda_account: Pubkey,
     program_address: Pubkey,
     instruction: OtterVerifyInstructions,
+    rpc_client: RpcClient,
 ) -> anyhow::Result<()> {
     let user_config = get_user_config()?;
     let signer = user_config.0;
     let signer_pubkey = signer.pubkey();
-    let connection = user_config.1;
+    let connection = rpc_client;
 
     let ix_data = if instruction != OtterVerifyInstructions::Close {
         create_ix_data(params, &instruction)
@@ -132,14 +132,31 @@ pub async fn upload_program(
     commit: &Option<String>,
     args: Vec<String>,
     program_address: Pubkey,
+    connection_url: Option<String>,
 ) -> anyhow::Result<()> {
-    if prompt_user_input("Do you want to update it to On-Chain Program ?. (Y/n) ") {
+    if prompt_user_input("Do you want to upload the program verification to the Solana Blockchain? (y/n) ") {
         println!("Uploading the program verification params to the Solana blockchain...");
         
         let cli_config = get_user_config()?;
+        
         let signer_pubkey = cli_config.0.pubkey();
-        let connection = cli_config.1;
+        let connection = match connection_url.as_deref() {
+            Some("m") => {
+                RpcClient::new("https://api.mainnet-beta.solana.com")
+            },
+            Some("d") => {
+                RpcClient::new("https://api.devnet.solana.com")
+            },
+            Some("l") => {
+                RpcClient::new("http://localhost:8899")
+            },
+            Some(url) => {
+                RpcClient::new(url)
+            },
+            None => cli_config.1,
+        };
         let rpc_url = connection.url();
+        println!("Using connection url: {}", rpc_url);
         
         let last_deployed_slot = get_last_deployed_slot(&rpc_url, &program_address.to_string()).await
         .map_err(|err| anyhow!("Unable to get last deployed slot: {}", err))?;
@@ -179,6 +196,7 @@ pub async fn upload_program(
                 pda_account_1,
                 program_address,
                 OtterVerifyInstructions::Update,
+                connection,
             )?;
         } else if connection.get_account(&pda_account_2).is_ok() {
             let wanna_create_new_pda = prompt_user_input(
@@ -190,6 +208,7 @@ pub async fn upload_program(
                     pda_account_1,
                     program_address,
                     OtterVerifyInstructions::Initialize,
+                    connection,
                 )?;
             }
             return Ok(());
@@ -200,6 +219,7 @@ pub async fn upload_program(
                 pda_account_1,
                 program_address,
                 OtterVerifyInstructions::Initialize,
+                connection,
             )?;
         }
     } else {
@@ -241,6 +261,7 @@ pub async fn process_close(program_address: Pubkey) -> anyhow::Result<()> {
             pda_account,
             program_address,
             OtterVerifyInstructions::Close,
+            connection,
         )?;
     } else {
         return Err(anyhow!(
