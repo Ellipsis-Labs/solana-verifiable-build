@@ -7,7 +7,7 @@
 # To get a newer version, you will need to update the SHA.
 # You can also reference a tag or branch, but the action may change without warning.
 
-name: Publish Docker image
+name: Publish Docker Image
 
 on:
   workflow_dispatch:
@@ -61,6 +61,6 @@ jobs:
       - name: Generate artifact attestation
         uses: actions/attest-build-provenance@v1
         with:
-          subject-name: ghcr.io/${{ github.repository_owner }}/solana:${{ github.event.inputs.version }}
+          subject-name: ghcr.io/${{ github.repository_owner }}/solana
           subject-digest: ${{ steps.push.outputs.digest }}
           push-to-registry: true
