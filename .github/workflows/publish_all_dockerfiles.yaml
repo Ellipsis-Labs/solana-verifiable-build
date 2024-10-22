@@ -38,6 +38,9 @@ jobs:
       attestations: write
       id-token: write
     steps:
+      - name: Report version
+        run: echo "Pushing Docker image for version ${{ matrix.version }}"
+
       - name: Check out the repo
         uses: actions/checkout@v4
 
@@ -60,11 +63,11 @@ jobs:
         uses: docker/build-push-action@3b5e8027fcad23fda98b2e3ac259d8d67585f671
         with:
           context: docker/
-          file: docker/v${{ github.event.inputs.version }}.Dockerfile
+          file: docker/v${{ matrix.version }}.Dockerfile
           push: true
           tags: |
             ${{ steps.meta.outputs.tags }}
-            ghcr.io/${{ github.repository_owner }}/solana:${{ github.event.inputs.version }}
+            ghcr.io/${{ github.repository_owner }}/solana:${{ matrix.version }}
           labels: |
             ${{ steps.meta.outputs.labels }}
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
