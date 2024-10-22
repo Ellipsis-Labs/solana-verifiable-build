@@ -48,7 +48,7 @@ jobs:
             This PR updates the Dockerfiles in the `docker/` directory.
             
             Generated automatically by the Generate Dockerfiles workflow.
-          branch: update-dockerfiles
+          branch: autopr-update-dockerfiles
           delete-branch: true
           base: master
           labels: |
