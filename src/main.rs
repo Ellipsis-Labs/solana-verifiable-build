@@ -178,7 +178,7 @@ async fn main() -> anyhow::Result<()> {
                 .long("program-id")
                 .required(true)
                 .takes_value(true)
-                .help("")))
+                .help("Close the otter-verify PDA account associated with the given program ID")))
         .get_matches();
 
     let res = match matches.subcommand() {
@@ -250,6 +250,10 @@ async fn main() -> anyhow::Result<()> {
                 &mut container_id,
                 &mut temp_dir,
             ).await
+        }
+        ("close", Some(sub_m)) => {
+            let program_id = sub_m.value_of("program-id").unwrap();
+            process_close(Pubkey::try_from(program_id)?).await
         }
         // Handle other subcommands in a similar manner, for now let's panic
         _ => panic!("Unknown subcommand: {:?}\nUse '--help' to see available commands", matches.subcommand().0)
@@ -751,7 +755,7 @@ pub async fn verify_from_repo(
     if let Some(commit_hash) = commit_hash.as_ref() {
         let result = std::process::Command::new("git")
             .args(["-C", &verify_tmp_root_path])
-            .args(["checkout", &commit_hash])
+            .args(["checkout", commit_hash])
             .output()
             .map_err(|e| anyhow!("Failed to checkout commit hash: {:?}", e));
         if result.is_ok() {
