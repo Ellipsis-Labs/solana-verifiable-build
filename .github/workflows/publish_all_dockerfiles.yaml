@@ -13,7 +13,7 @@ jobs:
   detect_changes:
     runs-on: ubuntu-latest
     outputs:
-      matrix: ${{ steps.set-matrix.outputs.matrix }}
+      versions: ${{ steps.set-matrix.outputs.versions }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -21,13 +21,16 @@ jobs:
       - id: set-matrix
         run: |
           CHANGED_FILES=$(git diff --name-only --diff-filter=d ${{ github.event.inputs.commit_hash }} ${{ github.sha }} | grep '^docker/v.*\.Dockerfile$' || true)
+          echo "CHANGED_FILE=$CHANGED_FILES"
           if [ -n "$CHANGED_FILES" ]; then
+            echo "$(echo "$CHANGED_FILES" | jq -R -s 'split("\n") | map(select(length > 0)) | map(.[8:-11])' | tr -d '[:space:]')"
             echo "versions=$(echo "$CHANGED_FILES" | jq -R -s 'split("\n") | map(select(length > 0)) | map(.[8:-11])' | tr -d '[:space:]')" >> $GITHUB_OUTPUT
           else
             echo "versions=[]" >> $GITHUB_OUTPUT
           fi
+          echo $GITHUB_OUTPUT
       - name: Display matrix
-        run: echo "${{ steps.set-matrix.outputs.matrix }}"
+        run: echo "${{ steps.set-matrix.outputs.versions }}"
 
   push_to_registries:
     needs: detect_changes
