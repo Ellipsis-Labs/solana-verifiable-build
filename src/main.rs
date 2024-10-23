@@ -61,10 +61,10 @@ async fn main() -> anyhow::Result<()> {
         }
     });
 
-    let matches = App::new("solana-verifier")
-        .author("Ellipsis")
-        .version("0.2.14")
-        .about("Solana Verifiable Build Tool")
+    let matches = App::new("solana-verify")
+        .author("Ellipsis Labs <maintainers@ellipsislabs.xyz>")
+        .version(env!("CARGO_PKG_VERSION"))
+        .about("A CLI tool for building verifiable Solana programs")
         .arg(Arg::with_name("url")
             .short("u")
             .long("url")
