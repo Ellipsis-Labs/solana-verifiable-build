@@ -152,7 +152,10 @@ pub async fn send_job_to_remote(
                     let status_response: JobVerificationResponse = status.respose.unwrap();
                     println!("Program {} has not been verified. ❌", program_id);
                     eprintln!("Error message: {}", status_response.message.as_str());
-                    println!("You can check the logs for more details here: {}/logs/{}", REMOTE_SERVER_URL, request_id);
+                    println!(
+                        "You can check the logs for more details here: {}/logs/{}",
+                        REMOTE_SERVER_URL, request_id
+                    );
                     break;
                 }
                 JobStatus::Unknown => {
@@ -165,7 +168,10 @@ pub async fn send_job_to_remote(
         }
         let url = format!("https://verify.osec.io/status/{}", program_id);
         println!("Check the verification status at: {}", url);
-        println!("Job url: {}", &format!("{}/job/{}", REMOTE_SERVER_URL, request_id));
+        println!(
+            "Job url: {}",
+            &format!("{}/job/{}", REMOTE_SERVER_URL, request_id)
+        );
 
         Ok(())
     } else if response.status() == 409 {

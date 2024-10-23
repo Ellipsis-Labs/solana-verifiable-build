@@ -188,9 +188,20 @@ async fn main() -> anyhow::Result<()> {
             let library_name = sub_m.value_of("library-name").map(|s| s.to_string());
             let base_image = sub_m.value_of("base-image").map(|s| s.to_string());
             let bpf_flag = sub_m.is_present("bpf");
-            let cargo_args = sub_m.values_of("cargo-args").unwrap_or_default().map(|s| s.to_string()).collect();
-            build(mount_directory, library_name, base_image, bpf_flag, cargo_args, &mut container_id)
-        },
+            let cargo_args = sub_m
+                .values_of("cargo-args")
+                .unwrap_or_default()
+                .map(|s| s.to_string())
+                .collect();
+            build(
+                mount_directory,
+                library_name,
+                base_image,
+                bpf_flag,
+                cargo_args,
+                &mut container_id,
+            )
+        }
         ("verify-from-image", Some(sub_m)) => {
             let executable_path = sub_m.value_of("executable-path-in-image").unwrap();
             let image = sub_m.value_of("image").unwrap();
@@ -205,25 +216,31 @@ async fn main() -> anyhow::Result<()> {
                 &mut temp_dir,
                 &mut container_id,
             )
-        },
+        }
         ("get-executable-hash", Some(sub_m)) => {
             let filepath = sub_m.value_of("filepath").map(|s| s.to_string()).unwrap();
             let program_hash = get_file_hash(&filepath)?;
             println!("{}", program_hash);
             Ok(())
-        },
+        }
         ("get-buffer-hash", Some(sub_m)) => {
             let buffer_address = sub_m.value_of("buffer-address").unwrap();
-            let buffer_hash = get_buffer_hash(matches.value_of("url").map(|s| s.to_string()), Pubkey::try_from(buffer_address)?)?;
+            let buffer_hash = get_buffer_hash(
+                matches.value_of("url").map(|s| s.to_string()),
+                Pubkey::try_from(buffer_address)?,
+            )?;
             println!("{}", buffer_hash);
             Ok(())
-        },
+        }
         ("get-program-hash", Some(sub_m)) => {
             let program_id = sub_m.value_of("program-id").unwrap();
-            let program_hash = get_program_hash(matches.value_of("url").map(|s| s.to_string()), Pubkey::try_from(program_id)?)?;
+            let program_hash = get_program_hash(
+                matches.value_of("url").map(|s| s.to_string()),
+                Pubkey::try_from(program_id)?,
+            )?;
             println!("{}", program_hash);
             Ok(())
-        },
+        }
         ("verify-from-repo", Some(sub_m)) => {
             let remote = sub_m.is_present("remote");
             let mount_path = sub_m.value_of("mount-path").map(|s| s.to_string()).unwrap();
@@ -234,7 +251,11 @@ async fn main() -> anyhow::Result<()> {
             let library_name = sub_m.value_of("library-name").map(|s| s.to_string());
             let bpf_flag = sub_m.is_present("bpf");
             let current_dir = sub_m.is_present("current-dir");
-            let cargo_args: Vec<String> = sub_m.values_of("cargo-args").unwrap_or_default().map(|s| s.to_string()).collect();
+            let cargo_args: Vec<String> = sub_m
+                .values_of("cargo-args")
+                .unwrap_or_default()
+                .map(|s| s.to_string())
+                .collect();
 
             verify_from_repo(
                 remote,
@@ -250,14 +271,18 @@ async fn main() -> anyhow::Result<()> {
                 current_dir,
                 &mut container_id,
                 &mut temp_dir,
-            ).await
+            )
+            .await
         }
         ("close", Some(sub_m)) => {
             let program_id = sub_m.value_of("program-id").unwrap();
             process_close(Pubkey::try_from(program_id)?).await
         }
         // Handle other subcommands in a similar manner, for now let's panic
-        _ => panic!("Unknown subcommand: {:?}\nUse '--help' to see available commands", matches.subcommand().0)
+        _ => panic!(
+            "Unknown subcommand: {:?}\nUse '--help' to see available commands",
+            matches.subcommand().0
+        ),
     };
 
     if caught_signal.load(Ordering::Relaxed) || res.is_err() {
