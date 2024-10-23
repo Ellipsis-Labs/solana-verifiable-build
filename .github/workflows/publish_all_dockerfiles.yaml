@@ -22,18 +22,18 @@ jobs:
         run: |
           CHANGED_FILES=$(git diff --name-only --diff-filter=d ${{ github.event.inputs.commit_hash }} ${{ github.sha }} | grep '^docker/v.*\.Dockerfile$' || true)
           if [ -n "$CHANGED_FILES" ]; then
-            echo "matrix=$(echo "$CHANGED_FILES" | jq -R -s 'split("\n") | map(select(length > 0)) | map(.[8:-11]) | {version: .} | tojson')" >> $GITHUB_OUTPUT
+            echo "versions=$(echo "$CHANGED_FILES" | jq -R -s 'split("\n") | map(select(length > 0)) | map(.[8:-11])')" >> $GITHUB_OUTPUT
           else
-            echo "matrix=[]" >> $GITHUB_OUTPUT
+            echo "versions=[]" >> $GITHUB_OUTPUT
           fi
       - name: Display matrix
         run: echo "${{ steps.set-matrix.outputs.matrix }}"
 
   push_to_registries:
     needs: detect_changes
-    if: ${{ needs.detect_changes.outputs.matrix != '[]' }}
+    if: ${{ needs.detect_changes.outputs.versions != '[]' }}
     strategy:
-      matrix: ${{fromJson(needs.detect_changes.outputs.matrix)}}
+      matrix: ${{fromJson(needs.detect_changes.outputs.versions )}}
     name: Push Docker images to ghcr.io
     runs-on: ubuntu-latest
     permissions:
