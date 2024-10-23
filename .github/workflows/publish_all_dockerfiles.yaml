@@ -22,7 +22,7 @@ jobs:
         run: |
           CHANGED_FILES=$(git diff --name-only --diff-filter=d ${{ github.event.inputs.commit_hash }} ${{ github.sha }} | grep '^docker/v.*\.Dockerfile$' || true)
           if [ -n "$CHANGED_FILES" ]; then
-            echo "versions=$(echo "$CHANGED_FILES" | jq -R -s 'split("\n") | map(select(length > 0)) | map(.[8:-11])' | tr -d '\n' | sed 's/,  /,/g')" >> $GITHUB_OUTPUT
+            echo "versions=$(echo "$CHANGED_FILES" | jq -R -s 'split("\n") | map(select(length > 0)) | map(.[8:-11])' | tr -d '[:space:]')" >> $GITHUB_OUTPUT
           else
             echo "versions=[]" >> $GITHUB_OUTPUT
           fi
