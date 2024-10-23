@@ -36,7 +36,8 @@ jobs:
     needs: detect_changes
     if: ${{ needs.detect_changes.outputs.versions != '[]' }}
     strategy:
-      matrix: ${{ fromJson(needs.detect_changes.outputs.versions )}}
+      matrix: 
+        version: ${{ fromJson(needs.detect_changes.outputs.versions )}}
     name: Push Docker images to ghcr.io
     runs-on: ubuntu-latest
     permissions:
