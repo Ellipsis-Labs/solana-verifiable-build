@@ -174,12 +174,12 @@ async fn main() -> anyhow::Result<()> {
                 .last(true)
                 .help("Arguments to pass to the underlying `cargo build-bpf` command")))
         .subcommand(SubCommand::with_name("close")
-            .about("")
+            .about("Close the otter-verify PDA account associated with the given program ID")
             .arg(Arg::with_name("program-id")
                 .long("program-id")
                 .required(true)
                 .takes_value(true)
-                .help("Close the otter-verify PDA account associated with the given program ID")))
+                .help("The address of the program to close the PDA")))
         .get_matches();
 
     let res = match matches.subcommand() {
