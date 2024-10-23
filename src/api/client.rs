@@ -165,7 +165,7 @@ pub async fn send_job_to_remote(
         }
         let url = format!("https://verify.osec.io/status/{}", program_id);
         println!("Check the verification status at: {}", url);
-        println!("Job url: {}", &format!("{}/job/{}", REMOTE_SERVER_URL, status_response.request_id));
+        println!("Job url: {}", &format!("{}/job/{}", REMOTE_SERVER_URL, request_id));
 
         Ok(())
     } else if response.status() == 409 {
