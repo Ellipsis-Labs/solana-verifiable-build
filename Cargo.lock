@@ -4007,7 +4007,7 @@ dependencies = [
 
 [[package]]
 name = "solana-verify"
-version = "0.2.13"
+version = "0.2.14"
 dependencies = [
  "anyhow",
  "borsh 1.5.0",

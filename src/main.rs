@@ -63,7 +63,7 @@ async fn main() -> anyhow::Result<()> {
 
     let matches = App::new("solana-verifier")
         .author("Ellipsis")
-        .version("0.1.0")
+        .version("0.2.14")
         .about("Solana Verifiable Build Tool")
         .arg(Arg::with_name("url")
             .short("u")
