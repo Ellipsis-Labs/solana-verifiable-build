@@ -54,6 +54,7 @@ async fn main() -> anyhow::Result<()> {
     let caught_signal_clone = caught_signal.clone();
     let handle = signals.handle();
     std::thread::spawn(move || {
+        #[allow(clippy::never_loop)]
         for _ in signals.forever() {
             caught_signal_clone.store(true, Ordering::Relaxed);
             break;
