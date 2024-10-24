@@ -1,3 +1,4 @@
+import re
 import requests
 import os
 
@@ -5,31 +6,43 @@ github_token = os.environ.get('GITHUB_TOKEN')
 use_ghcr = os.environ.get('USE_GHCR', 'false').lower() == 'true'
 headers = {'Authorization': f'Bearer {github_token}'}
 
-if not use_ghcr:
+if use_ghcr:
+    response = requests.get(
+        "https://api.github.com/orgs/ellipsis-labs/packages/container/solana/versions?per_page=100",
+        headers=headers
+    )
+    if response.status_code != 200:
+        raise Exception(f"Failed to get Docker images: {response.status_code} {response.text}") 
+    results = response.json()
+else:
     response = requests.get(
         "https://hub.docker.com/v2/namespaces/ellipsislabs/repositories/solana/tags?page_size=1000"
     )
     if response.status_code != 200:
         raise Exception(f"Failed to get Docker images: {response.status_code} {response.text}") 
     results = response.json()["results"] 
-else:
-    response = requests.get(
-        "https://api.github.com/users/ngundotra/packages/container/solana/versions?per_page=100",
-        headers=headers
-    )
-    if response.status_code != 200:
-        raise Exception(f"Failed to get Docker images: {response.status_code} {response.text}") 
-    results = response.json()
 
 digest_map = {}
 for result in results:
-    if result["name"] != "latest":
-        try:
-            major, minor, patch = list(map(int, result["name"].split(".")))
-            digest_map[(major, minor, patch)] = result["digest"]
-        except Exception as e:
-            print(e)
-            continue
+    if use_ghcr:
+        # For GHCR, extract version from metadata
+        metadata = result.get("metadata", {})
+        container = metadata.get("container", {})
+        tags = container.get("tags", [])
+        for tag in tags:
+            match = re.match(r'(\d+)\.(\d+)\.(\d+)', tag)
+            if match:
+                major, minor, patch = map(int, match.groups())
+                digest_map[(major, minor, patch)] = result["name"]  # "name" contains the digest for GHCR
+                break 
+    else:
+        if result["name"] != "latest":
+            try:
+                major, minor, patch = list(map(int, result["name"].split(".")))
+                digest_map[(major, minor, patch)] = result["digest"]
+            except Exception as e:
+                print(e)
+                continue
 
 
 entries = []
