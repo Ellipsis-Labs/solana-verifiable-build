@@ -5,14 +5,7 @@ github_token = os.environ.get('GITHUB_TOKEN')
 use_ghcr = os.environ.get('USE_GHCR', 'false').lower() == 'true'
 headers = {'Authorization': f'Bearer {github_token}'}
 
-if not use_ghcr:
-    response = requests.get(
-        "https://hub.docker.com/v2/namespaces/ellipsislabs/repositories/solana/tags?page_size=1000"
-    )
-    if response.status_code != 200:
-        raise Exception(f"Failed to get Docker images: {response.status_code} {response.text}") 
-    results = response.json()["results"] 
-else:
+if use_ghcr:
     response = requests.get(
         "https://api.github.com/users/ngundotra/packages/container/solana/versions?per_page=100",
         headers=headers
@@ -20,16 +13,36 @@ else:
     if response.status_code != 200:
         raise Exception(f"Failed to get Docker images: {response.status_code} {response.text}") 
     results = response.json()
+else:
+    response = requests.get(
+        "https://hub.docker.com/v2/namespaces/ellipsislabs/repositories/solana/tags?page_size=1000"
+    )
+    if response.status_code != 200:
+        raise Exception(f"Failed to get Docker images: {response.status_code} {response.text}") 
+    results = response.json()["results"] 
 
 digest_map = {}
 for result in results:
-    if result["name"] != "latest":
-        try:
-            major, minor, patch = list(map(int, result["name"].split(".")))
-            digest_map[(major, minor, patch)] = result["digest"]
-        except Exception as e:
-            print(e)
-            continue
+    if use_ghcr:
+        # For GHCR, extract version from metadata
+        metadata = result.get("metadata", {})
+        container = metadata.get("container", {})
+        tags = container.get("tags", [])
+        if tags and tags[0] != "latest":
+            try:
+                major, minor, patch = map(int, tags[0].split("."))
+                digest_map[(major, minor, patch)] = result["name"]  # "name" contains the digest/sha for GHCR
+            except Exception as e:
+                print(f"Error processing tag {tags[0]}: {e}")
+                continue
+    else:
+        if result["name"] != "latest":
+            try:
+                major, minor, patch = list(map(int, result["name"].split(".")))
+                digest_map[(major, minor, patch)] = result["digest"]
+            except Exception as e:
+                print(e)
+                continue
 
 
 entries = []
