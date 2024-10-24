@@ -23,6 +23,7 @@ use std::{
 };
 use uuid::Uuid;
 pub mod api;
+#[rustfmt::skip]
 pub mod image_config;
 pub mod solana_program;
 use image_config::IMAGE_MAP;
