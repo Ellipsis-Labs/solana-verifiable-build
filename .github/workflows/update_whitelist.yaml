@@ -2,15 +2,11 @@ name: Update Docker Image Whitelist
 
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - master
-    paths:
-      - 'docker/**'
 
 permissions:
   contents: write
   pull-requests: write
+  packages: read
 
 jobs:
   update-docker-image-whitelist:
