@@ -39,7 +39,7 @@ jobs:
       - name: Run generate_dockerfiles.py
         env:
           USE_GHCR: "true"
-          GITHUB_TOKEN: ${{ steps.generate-token.outputs.token }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: uv run update_image_whitelist.py
 
       - name: Create Pull Request
