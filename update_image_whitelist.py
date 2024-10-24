@@ -8,7 +8,7 @@ headers = {'Authorization': f'Bearer {github_token}'}
 
 if use_ghcr:
     response = requests.get(
-        "https://api.github.com/users/ngundotra/packages/container/solana/versions?per_page=100",
+        "https://api.github.com/orgs/ellipsis-labs/packages/container/solana/versions?per_page=100",
         headers=headers
     )
     if response.status_code != 200:
