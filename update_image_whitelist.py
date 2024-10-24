@@ -7,13 +7,24 @@ use_ghcr = os.environ.get('USE_GHCR', 'false').lower() == 'true'
 headers = {'Authorization': f'Bearer {github_token}'}
 
 if use_ghcr:
-    response = requests.get(
-        "https://api.github.com/orgs/Ellipsis-Labs/packages/container/solana/versions?per_page=100",
-        headers=headers
-    )
-    if response.status_code != 200:
-        raise Exception(f"Failed to get Docker images: {response.status_code} {response.text}") 
-    results = response.json()
+    url = "https://api.github.com/orgs/Ellipsis-Labs/packages/container/solana/versions?per_page=100"
+    results = []
+    while url:
+        response = requests.get(url, headers=headers)
+        if response.status_code != 200:
+            raise Exception(f"Failed to get Docker images: {response.status_code} {response.text}")
+        results.extend(response.json())
+        
+        # Check for pagination
+        url = None
+        if 'Link' in response.headers:
+            links = response.headers['Link']
+            for link in links.split(','):
+                if 'rel="next"' in link:
+                    url = link[link.find('<') + 1:link.find('>')]
+                    break
+        if response.status_code != 200:
+            raise Exception(f"Failed to get Docker images: {response.status_code} {response.text}") 
 else:
     response = requests.get(
         "https://hub.docker.com/v2/namespaces/ellipsislabs/repositories/solana/tags?page_size=1000"
