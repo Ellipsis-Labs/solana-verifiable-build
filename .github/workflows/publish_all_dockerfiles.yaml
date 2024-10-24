@@ -38,6 +38,7 @@ jobs:
     strategy:
       matrix: 
         version: ${{ fromJson(needs.detect_changes.outputs.versions )}}
+      fail-fast: false
     name: Push Docker images to ghcr.io
     runs-on: ubuntu-latest
     permissions:
