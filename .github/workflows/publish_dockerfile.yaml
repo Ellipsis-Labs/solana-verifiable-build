@@ -1,4 +1,4 @@
-name: Publish Docker Image
+name: Publish Single Docker Image
 
 on:
   workflow_dispatch:
