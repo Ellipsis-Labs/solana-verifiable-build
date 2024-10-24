@@ -1,3 +1,4 @@
+import re
 import requests
 import os
 
@@ -28,13 +29,12 @@ for result in results:
         metadata = result.get("metadata", {})
         container = metadata.get("container", {})
         tags = container.get("tags", [])
-        if tags and tags[0] != "latest":
-            try:
-                major, minor, patch = map(int, tags[0].split("."))
-                digest_map[(major, minor, patch)] = result["name"]  # "name" contains the digest/sha for GHCR
-            except Exception as e:
-                print(f"Error processing tag {tags[0]}: {e}")
-                continue
+        for tag in tags:
+            match = re.match(r'(\d+)\.(\d+)\.(\d+)', tag)
+            if match:
+                major, minor, patch = map(int, match.groups())
+                digest_map[(major, minor, patch)] = result["name"]  # "name" contains the digest for GHCR
+                break 
     else:
         if result["name"] != "latest":
             try:
