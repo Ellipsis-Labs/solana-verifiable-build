@@ -38,7 +38,7 @@ jobs:
     strategy:
       matrix: 
         version: ${{ fromJson(needs.detect_changes.outputs.versions )}}
-    name: Push Docker images to ghcr.io
+    name: Push Docker images to docker.io
     runs-on: ubuntu-latest
     permissions:
       packages: write
@@ -55,9 +55,9 @@ jobs:
       - name: Log in to the Container registry
         uses: docker/login-action@65b78e6e13532edd9afa3aa52ac7964289d1a9c1
         with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+          registry: docker.io
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
 
       - name: Extract metadata (tags, labels) for Docker
         id: meta
@@ -75,7 +75,7 @@ jobs:
           push: true
           tags: |
             ${{ steps.meta.outputs.tags }}
-            ghcr.io/${{ github.repository_owner }}/solana:${{ matrix.version }}
+            docker.io/solanafoundation/solana-verifiable-build:${{ github.event.inputs.version }}
           labels: |
             ${{ steps.meta.outputs.labels }}
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
@@ -83,6 +83,6 @@ jobs:
       - name: Generate artifact attestation
         uses: actions/attest-build-provenance@v1
         with:
-          subject-name: ghcr.io/${{ github.repository_owner }}/solana
+          subject-name: index.docker.io/solanafoundation/solana-verifiable-build
           subject-digest: ${{ steps.push.outputs.digest }}
           push-to-registry: true
