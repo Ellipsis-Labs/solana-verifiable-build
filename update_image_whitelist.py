@@ -22,6 +22,13 @@ else:
         raise Exception(f"Failed to get Docker images: {response.status_code} {response.text}") 
     results = response.json()["results"] 
 
+    sfResponse = requests.get(
+        "https://hub.docker.com/v2/namespaces/solanafoundation/repositories/solana-verified-build/tags?page_size=1000"
+    )
+    if sfResponse.status_code != 200:
+        raise Exception(f"Failed to get Docker images: {sfResponse.status_code} {sfResponse.text}") 
+    results = sfResponse.json()["results"] + results
+
 digest_map = {}
 for result in results:
     if use_ghcr:
