@@ -1,4 +1,5 @@
 import re
+import re
 import requests
 import os
 
@@ -30,6 +31,26 @@ else:
     results = sfResponse.json()["results"] + results
 
 digest_map = {}
+for result in results:
+    if use_ghcr:
+        # For GHCR, extract version from metadata
+        metadata = result.get("metadata", {})
+        container = metadata.get("container", {})
+        tags = container.get("tags", [])
+        for tag in tags:
+            match = re.match(r'(\d+)\.(\d+)\.(\d+)', tag)
+            if match:
+                major, minor, patch = map(int, match.groups())
+                digest_map[(major, minor, patch)] = result["name"]  # "name" contains the digest for GHCR
+                break 
+    else:
+        if result["name"] != "latest":
+            try:
+                major, minor, patch = list(map(int, result["name"].split(".")))
+                digest_map[(major, minor, patch)] = result["digest"]
+            except Exception as e:
+                print(e)
+                continue
 for result in results:
     if use_ghcr:
         # For GHCR, extract version from metadata
