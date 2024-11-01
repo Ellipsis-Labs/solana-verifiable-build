@@ -75,7 +75,7 @@ jobs:
           push: true
           tags: |
             ${{ steps.meta.outputs.tags }}
-            docker.io/solanafoundation/solana-verifiable-build:${{ github.event.inputs.version }}
+            docker.io/solanafoundation/solana-verifiable-build:${{ matrix.version }}
           labels: |
             ${{ steps.meta.outputs.labels }}
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
