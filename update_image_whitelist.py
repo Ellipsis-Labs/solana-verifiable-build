@@ -24,7 +24,7 @@ else:
     results = response.json()["results"] 
 
     sfResponse = requests.get(
-        "https://hub.docker.com/v2/namespaces/solanafoundation/repositories/solana-verified-build/tags?page_size=1000"
+        "https://hub.docker.com/v2/namespaces/solanafoundation/repositories/solana-verifiable-build/tags?page_size=1000"
     )
     if sfResponse.status_code != 200:
         raise Exception(f"Failed to get Docker images: {sfResponse.status_code} {sfResponse.text}") 
