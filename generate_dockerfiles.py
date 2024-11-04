@@ -185,7 +185,7 @@ digest_set = set()
 if not args.skip_cache:
     print("Fetching existing images")
     response = requests.get(
-        "https://hub.docker.com/v2/namespaces/ellipsislabs/repositories/solana/tags?page_size=1000"
+        "https://hub.docker.com/v2/namespaces/solanafoundation/repositories/solana-verifiable-build/tags?page_size=1000"
     )
     for result in response.json()["results"]:
         print(result)
@@ -237,8 +237,8 @@ if args.upload:
         )
         if res == 0:
             subprocess.call(
-                f"docker tag {version_tag} ellipsislabs/{version_tag}", shell=True
+                f"docker tag {version_tag} solanafoundation/solana-verifiable-build/{version_tag}", shell=True
             )
-            subprocess.call(f"docker push ellipsislabs/{version_tag}", shell=True)
+            subprocess.call(f"docker push solanafoundation/solana-verifiable-build/{version_tag}", shell=True)
         else:
             continue
