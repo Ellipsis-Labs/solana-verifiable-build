@@ -16,16 +16,17 @@ if use_ghcr:
         raise Exception(f"Failed to get Docker images: {response.status_code} {response.text}") 
     results = response.json()
 else:
-    response = requests.get(
-        "https://hub.docker.com/v2/namespaces/ellipsislabs/repositories/solana/tags?page_size=1000"
-    )
-    if response.status_code != 200:
-        raise Exception(f"Failed to get Docker images: {response.status_code} {response.text}") 
-    results = response.json()["results"] 
+    # response = requests.get(
+    #     "https://hub.docker.com/v2/namespaces/ellipsislabs/repositories/solana/tags?page_size=1000"
+    # )
+    # if response.status_code != 200:
+    #     raise Exception(f"Failed to get Docker images: {response.status_code} {response.text}") 
+    # results = response.json()["results"] 
 
     sfResponse = requests.get(
         "https://hub.docker.com/v2/namespaces/solanafoundation/repositories/solana-verifiable-build/tags?page_size=1000"
     )
+    results = sfResponse.json()["results"] 
     if sfResponse.status_code != 200:
         raise Exception(f"Failed to get Docker images: {sfResponse.status_code} {sfResponse.text}") 
     results = sfResponse.json()["results"] + results
