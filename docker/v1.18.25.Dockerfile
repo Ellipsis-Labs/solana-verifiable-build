@@ -2,8 +2,7 @@ FROM --platform=linux/amd64 rust@sha256:b7b25312e49dfbe6cab04c89d5a8ed5df2df9714
 
 RUN apt-get update && apt-get install -qy git gnutls-bin
 RUN sh -c "$(curl -sSfL https://release.anza.xyz/v1.18.25/install)"
-
-ENV PATH="/root/.local/share/agave/install/active_release/bin:$PATH"
+ENV PATH="/root/.local/share/solana/install/active_release/bin:$PATH"
 WORKDIR /build
 
 CMD /bin/bash
