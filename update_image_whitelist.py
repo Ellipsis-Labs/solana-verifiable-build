@@ -7,6 +7,29 @@ github_token = os.environ.get('GITHUB_TOKEN')
 use_ghcr = os.environ.get('USE_GHCR', 'false').lower() == 'true'
 headers = {'Authorization': f'Bearer {github_token}'}
 
+def fetch_all_tags(repository):
+    """Fetches all tags for a given Docker Hub repository across all pages."""
+    url = f"https://hub.docker.com/v2/repositories/{repository}/tags/"
+    all_tags = []
+    page = 1
+    page_size = 100  # Maximum page size Docker Hub allows
+
+    while True:
+        response = requests.get(url, params={"page": page, "page_size": page_size})
+        if response.status_code != 200:
+            raise Exception(f"Failed to get Docker images: {response.status_code} {response.text}")
+        
+        response_data = response.json()
+
+        all_tags.extend(response_data.get("results", []))
+        print(f"Fetched page {page} with {len(response_data.get('results', []))} tags.")
+
+        if not response_data.get("next"):
+            break
+        page += 1
+
+    return all_tags
+
 if use_ghcr:
     response = requests.get(
         "https://api.github.com/users/ngundotra/packages/container/solana/versions?per_page=100",
@@ -16,20 +39,8 @@ if use_ghcr:
         raise Exception(f"Failed to get Docker images: {response.status_code} {response.text}") 
     results = response.json()
 else:
-    # response = requests.get(
-    #     "https://hub.docker.com/v2/namespaces/ellipsislabs/repositories/solana/tags?page_size=1000"
-    # )
-    # if response.status_code != 200:
-    #     raise Exception(f"Failed to get Docker images: {response.status_code} {response.text}") 
-    # results = response.json()["results"] 
-
-    sfResponse = requests.get(
-        "https://hub.docker.com/v2/namespaces/solanafoundation/repositories/solana-verifiable-build/tags?page_size=1000"
-    )
-    results = sfResponse.json()["results"] 
-    if sfResponse.status_code != 200:
-        raise Exception(f"Failed to get Docker images: {sfResponse.status_code} {sfResponse.text}") 
-    results = sfResponse.json()["results"] + results
+    repository = "solanafoundation/solana-verifiable-build"
+    results = fetch_all_tags(repository)
 
 digest_map = {}
 for result in results:
@@ -45,34 +56,15 @@ for result in results:
                 digest_map[(major, minor, patch)] = result["name"]  # "name" contains the digest for GHCR
                 break 
     else:
-        if result["name"] != "latest":
-            try:
-                major, minor, patch = list(map(int, result["name"].split(".")))
-                digest_map[(major, minor, patch)] = result["digest"]
-            except Exception as e:
-                print(e)
-                continue
-for result in results:
-    if use_ghcr:
-        # For GHCR, extract version from metadata
-        metadata = result.get("metadata", {})
-        container = metadata.get("container", {})
-        tags = container.get("tags", [])
-        for tag in tags:
-            match = re.match(r'(\d+)\.(\d+)\.(\d+)', tag)
+        tag_name = result["name"]
+        if tag_name != "latest":
+            match = re.match(r'^(\d+)\.(\d+)\.(\d+)$', tag_name) 
             if match:
-                major, minor, patch = map(int, match.groups())
-                digest_map[(major, minor, patch)] = result["name"]  # "name" contains the digest for GHCR
-                break 
-    else:
-        if result["name"] != "latest":
-            try:
-                major, minor, patch = list(map(int, result["name"].split(".")))
-                digest_map[(major, minor, patch)] = result["digest"]
-            except Exception as e:
-                print(e)
-                continue
-
+                try:
+                    major, minor, patch = map(int, match.groups())
+                    digest_map[(major, minor, patch)] = result["digest"]
+                except ValueError as e:
+                    print(f"Skipping invalid version tag '{tag_name}': {e}")
 
 entries = []
 for k, v in sorted(digest_map.items()):
