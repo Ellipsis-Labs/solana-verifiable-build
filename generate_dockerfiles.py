@@ -62,6 +62,13 @@ WORKDIR /build
 CMD /bin/bash
 """
 
+# Skipping these because the are not valid releases or where yanked
+SKIPPED_VERSIONS = {
+    "v1.15", "v1.14.0", "v1.10.0", "v1.10.16", "v1.10.18",
+    "v1.10.27", "v1.10.36", "v1.10.37", "v1.11.7", "v1.11.8", "v1.11.9",
+    "v1.13.0",
+}
+
 # Determine release information for Solana or Agave
 def get_release_info(version_tag):
     """
@@ -75,15 +82,15 @@ def get_release_info(version_tag):
 
     major, minor, patch = map(int, version_parts)
 
-    # Filter out v1.15.x releases
     if major == 1 and minor == 15:
         print(f"Skipping yanked v1.15.x release: {version_tag}")
         return None
 
-    if major == 1 and minor == 14 and patch == 0:
-        print(f"Skipping yanked v1.14.0 release: {version_tag}")
+    if version_tag in SKIPPED_VERSIONS:
+        print(f"Skipping yanked release: {version_tag}")
         return None
 
+    # It would also be possible to generate more images for older versions but is it necessary?
     if major == 1 and minor < 10:
         print(f"Skipping all releases before 10 release: {version_tag}")
         return None
