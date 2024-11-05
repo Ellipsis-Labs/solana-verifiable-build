@@ -3,6 +3,7 @@ import os
 import argparse
 import requests
 import tomllib
+import re
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--upload", action="store_true")
@@ -19,7 +20,7 @@ RUST_VERSION_PLACEHOLDER = "$RUST_VERSION"
 SOLANA_VERSION_PLACEHOLDER = "$SOLANA_VERSION"
 AGAVE_VERSION_PLACEHOLDER = "$AGAVE_VERSION"
 
-# Dockerfile template for Solana
+# Dockerfile template for Solana versions >= 1.15
 base_dockerfile_sol = f"""
 FROM --platform=linux/amd64 rust@{RUST_VERSION_PLACEHOLDER}
 
@@ -28,6 +29,24 @@ RUN sh -c "$(curl -sSfL https://release.solana.com/{SOLANA_VERSION_PLACEHOLDER}/
 ENV PATH="/root/.local/share/solana/install/active_release/bin:$PATH"
 WORKDIR /build
 
+CMD /bin/bash
+"""
+
+# Dockerfile template for Solana versions < 1.15
+base_dockerfile_sol_pre15 = f"""
+FROM --platform=linux/amd64 rust@{RUST_VERSION_PLACEHOLDER}
+
+RUN apt-get update && apt-get install -qy git gnutls-bin curl
+
+# Download and modify the Solana install script to install the specified version
+RUN curl -sSfL "https://release.solana.com/v1.18.20/install" -o solana_install.sh && \\
+    chmod +x solana_install.sh && \\
+    sed -i "s/^SOLANA_INSTALL_INIT_ARGS=.*/SOLANA_INSTALL_INIT_ARGS={SOLANA_VERSION_PLACEHOLDER}/" solana_install.sh && \\
+    ./solana_install.sh && \\
+    rm solana_install.sh
+
+ENV PATH="/root/.local/share/solana/install/active_release/bin:$PATH"
+WORKDIR /build
 CMD /bin/bash
 """
 
@@ -49,22 +68,37 @@ def get_release_info(version_tag):
     Determines if a version is a Solana or Agave release and provides relevant info.
     Returns a dictionary with base_dockerfile_text, version_placeholder, and the URL for the toolchain.
     """
-    # Filter out non-numeric tags
     version_parts = version_tag.strip("v").split(".")
     if not all(part.isdigit() for part in version_parts):
         print(f"Skipping non-numeric tag: {version_tag}")
         return None
 
-    # Convert parts to integers
     major, minor, patch = map(int, version_parts)
 
-    if (major == 1 and minor >= 14 and minor != 15) and not (minor == 18 and patch >= 24):
+    # Filter out v1.15.x releases
+    if major == 1 and minor == 15:
+        print(f"Skipping yanked v1.15.x release: {version_tag}")
+        return None
+    
+    if major == 1 and minor < 10:
+        print(f"Skipping all releases before 10 release: {version_tag}")
+        return None
+    
+    # All releases 14 and below have a broken installer, so we need to use a custom script with a newer installer
+    if (major == 1 and minor < 15):
+        release_info = {
+            "base_dockerfile_text": base_dockerfile_sol_pre15,
+            "version_placeholder": SOLANA_VERSION_PLACEHOLDER,
+            "url": f"https://raw.githubusercontent.com/solana-labs/solana/{version_tag}/rust-toolchain.toml"
+        }
+    # Everything from 1.15.0 to 1.18.24 we want to get from solana labs 
+    elif (major == 1 and minor >= 15) and not (minor == 18 and patch >= 24):
         release_info = {
             "base_dockerfile_text": base_dockerfile_sol,
             "version_placeholder": SOLANA_VERSION_PLACEHOLDER,
             "url": f"https://raw.githubusercontent.com/solana-labs/solana/{version_tag}/rust-toolchain.toml"
         }
-    # Check if it's an Agave release
+    #Everything after we need to get from anza 
     elif (major == 1 and minor == 18 and patch >= 24) or major >= 2:
         release_info = {
             "base_dockerfile_text": base_dockerfile_agave,
@@ -102,7 +136,6 @@ def get_agave_releases():
 
 # Function to get Rust toolchain for each release
 def get_toolchain(version_tag):
-    # Special case for v1.14
     if "v1.14" in version_tag:
         return "1.68.0"
 
@@ -116,6 +149,21 @@ def get_toolchain(version_tag):
         parsed_data = tomllib.loads(response.text)
         return parsed_data["toolchain"]["channel"]
     print(f"Failed to fetch rust-toolchain.toml for {version_tag}")
+    # Fallback to rust-version.ci for older versions
+    print(f"Attempting to retrieve Rust version from rust-version.ci for {version_tag}")
+    return get_rust_version_from_ci(version_tag)
+
+def get_rust_version_from_ci(version_tag):
+    url = f"https://raw.githubusercontent.com/solana-labs/solana/{version_tag}/ci/rust-version.sh"
+    response = requests.get(url)
+    if response.status_code == 200:
+        match = re.search(r'stable_version=(\d+\.\d+\.\d+)', response.text)
+        if match:
+            return match.group(1)
+        else:
+            print(f"No stable Rust version found in {version_tag}")
+    else:
+        print(f"Failed to fetch rust-version.sh for {version_tag}")
     return None
 
 # Process releases and generate Dockerfiles
@@ -123,7 +171,7 @@ def process_releases(releases):
     for release in releases:
         release_info = get_release_info(release)
         if release_info is None:
-            continue  # Skip non-numeric tags
+            continue
 
         base_dockerfile_text = release_info["base_dockerfile_text"]
         version_placeholder = release_info["version_placeholder"]
@@ -131,12 +179,10 @@ def process_releases(releases):
         rust_version = get_toolchain(release)
         print(f"Generating Dockerfile for {release} with Rust version {rust_version}")
 
-        # Skip if rust_version is None to avoid KeyError
         if rust_version is None:
             print(f"Skipping {release} due to missing Rust version.")
             continue
 
-        # Ensure Rust image hash is available
         if rust_version not in RUST_DOCKER_IMAGESHA_MAP and rust_version != "1.68.0":
             response = requests.get(
                 f"https://hub.docker.com/v2/namespaces/library/repositories/rust/tags/{rust_version}"
@@ -150,14 +196,12 @@ def process_releases(releases):
                     print(f"Failed to fetch Rust image for {rust_version}")
                     continue
 
-        # Replace placeholders in the Dockerfile template
         dockerfile = base_dockerfile_text.replace(
             version_placeholder, release
         ).replace(
             RUST_VERSION_PLACEHOLDER, RUST_DOCKER_IMAGESHA_MAP[rust_version]
         ).lstrip("\n")
 
-        # Write the Dockerfile to disk
         path = f"docker/{release}.Dockerfile"
         if os.path.exists(path):
             with open(path, "r") as f:
@@ -180,6 +224,7 @@ process_releases(solana_releases)
 process_releases(agave_releases)
 
 print(RUST_DOCKER_IMAGESHA_MAP)
+
 
 digest_set = set()
 if not args.skip_cache:

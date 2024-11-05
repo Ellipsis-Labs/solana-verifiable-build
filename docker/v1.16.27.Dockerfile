@@ -6,4 +6,3 @@ ENV PATH="/root/.local/share/solana/install/active_release/bin:$PATH"
 WORKDIR /build
 
 CMD /bin/bash
-

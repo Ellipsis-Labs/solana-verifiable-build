@@ -6,6 +6,7 @@ lazy_static! {
     pub static ref IMAGE_MAP: BTreeMap<(u32, u32, u32), &'static str> = {
         let mut m = BTreeMap::new();
         m.insert((1, 14, 9), "sha256:073eb70e7fa3be8c7d7809e03bdedcf7ddd8744c8004921151c7b1c19fe760fd");
+        m.insert((1, 14, 10), "sha256:65d8d4ee9391058ae9079e7d2f4012bf5db92b80c1308160a7dac0d889c27c85");
         m.insert((1, 16, 0), "sha256:9704a8134ab8f71d60393058f54014d68171935778168dae4f177d4b5048eee9");
         m.insert((1, 16, 1), "sha256:f8f9f6ab171cddecf6ca9edfbc2f8832ca40a39d32d1d6d6675480c973e6ddb2");
         m.insert((1, 16, 2), "sha256:3d7bfe90102c93a4e8485ff81f9c8bca7902408195dd469ce39d0d8fb0d83431");
