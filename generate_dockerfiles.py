@@ -79,7 +79,11 @@ def get_release_info(version_tag):
     if major == 1 and minor == 15:
         print(f"Skipping yanked v1.15.x release: {version_tag}")
         return None
-    
+
+    if major == 1 and minor == 14 and patch == 0:
+        print(f"Skipping yanked v1.14.0 release: {version_tag}")
+        return None
+
     if major == 1 and minor < 10:
         print(f"Skipping all releases before 10 release: {version_tag}")
         return None
