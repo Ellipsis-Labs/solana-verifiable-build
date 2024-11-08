@@ -54,7 +54,11 @@ struct ProgramInfo {
     slot: Option<u64>,
 }
 
-async fn get_account_info(client: &Client, rpc_url: &str, address: &str) -> anyhow::Result<AccountValue> {
+async fn get_account_info(
+    client: &Client,
+    rpc_url: &str,
+    address: &str,
+) -> anyhow::Result<AccountValue> {
     let body = serde_json::json!({
         "jsonrpc": "2.0",
         "id": 1,
@@ -67,21 +71,21 @@ async fn get_account_info(client: &Client, rpc_url: &str, address: &str) -> anyh
         ]
     });
 
-
-    let response = client
-        .post(rpc_url)
-        .json(&body)
-        .send()
-        .await?;
+    let response = client.post(rpc_url).json(&body).send().await?;
 
     let response: RpcResponse = response.json().await?;
     if let Some(value) = response.result {
-        return value.value.ok_or_else(|| anyhow::anyhow!("No value found in account info response"));
+        return value
+            .value
+            .ok_or_else(|| anyhow::anyhow!("No value found in account info response"));
     }
     anyhow::bail!("No result found in account info response");
 }
 
-pub async fn get_last_deployed_slot(rpc_url: &str, program_address: &str) -> Result<u64, Box<dyn Error>> {
+pub async fn get_last_deployed_slot(
+    rpc_url: &str,
+    program_address: &str,
+) -> Result<u64, Box<dyn Error>> {
     let client = Client::new();
 
     // Step 1: Get account info for the program address
@@ -104,7 +108,6 @@ pub async fn get_last_deployed_slot(rpc_url: &str, program_address: &str) -> Res
 
     Ok(last_deployed_slot)
 }
-
 
 #[cfg(test)]
 mod tests {

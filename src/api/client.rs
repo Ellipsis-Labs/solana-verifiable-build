@@ -110,6 +110,7 @@ pub async fn send_job_to_remote(
 
     if response.status().is_success() {
         let status_response: VerifyResponse = response.json().await?;
+        let request_id = status_response.request_id;
         println!("Verification request sent. ✅");
         println!("Verification in progress... ⏳");
         // Span new thread for polling the server for status
@@ -119,7 +120,7 @@ pub async fn send_job_to_remote(
         let handle = thread::spawn(move || loading_animation(receiver));
         // Poll the server for status
         loop {
-            let status = check_job_status(&client, &status_response.request_id).await?;
+            let status = check_job_status(&client, &request_id).await?;
             match status.status {
                 JobStatus::InProgress => {
                     thread::sleep(Duration::from_secs(10));
@@ -151,6 +152,10 @@ pub async fn send_job_to_remote(
                     let status_response: JobVerificationResponse = status.respose.unwrap();
                     println!("Program {} has not been verified. ❌", program_id);
                     eprintln!("Error message: {}", status_response.message.as_str());
+                    println!(
+                        "You can check the logs for more details here: {}/logs/{}",
+                        REMOTE_SERVER_URL, request_id
+                    );
                     break;
                 }
                 JobStatus::Unknown => {
@@ -161,15 +166,26 @@ pub async fn send_job_to_remote(
                 }
             }
         }
+        let url = format!("https://verify.osec.io/status/{}", program_id);
+        println!("Check the verification status at: {}", url);
+        println!(
+            "Job url: {}",
+            &format!("{}/job/{}", REMOTE_SERVER_URL, request_id)
+        );
 
         Ok(())
     } else if response.status() == 409 {
         let response = response.json::<ErrorResponse>().await?;
         eprintln!("Error: {}", response.error.as_str());
+        let url = format!("{}/status/{}", REMOTE_SERVER_URL, program_id);
+        println!("Check the status at: {}", url);
         Ok(())
     } else {
         eprintln!("Encountered an error while attempting to send the job to remote");
-        Err(anyhow!("{:?}", response.text().await?))?
+        Err(anyhow!("{:?}", response.text().await?))?;
+        let url = format!("{}/status/{}", REMOTE_SERVER_URL, program_id);
+        println!("Check the verification status at: {}", url);
+        Ok(())
     }
 }
 
