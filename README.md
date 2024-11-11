@@ -51,7 +51,7 @@ If you're working in a repository with multiple programs, in order to build a sp
 solana-verify build --library-name $PROGRAM_LIB_NAME
 ```
 
-The string that's passed in must be the *lib* name and NOT the *package* name. These are usually the same, but the distinction is important.
+The string that's passed in must be the _lib_ name and NOT the _package_ name. These are usually the same, but the distinction is important.
 ![image](https://github.com/Ellipsis-Labs/solana-verifiable-build/assets/61092285/0427e88f-cc0f-465f-b2e9-747ea1b8d3af)
 
 (NOTE: These commands can take up to 30 minutes if you're running on an M1 Macbook Pro. This has to do with the architecture emulation required to ensure build determinism. For best performance, it is recommended to run builds on a Linux machine running x86)
@@ -105,8 +105,8 @@ solana-verify verify-from-repo -um --program-id PhoeNiXZ8ByJGLkxNfZRnkUfjvmuYqLR
 Final Output:
 
 ```
-Executable Program Hash from repo: 7c76ba11f8742d040b1a874d943c2096f1b3a48db14d2a5b411fd5dad5d1bc2d
-On-chain Program Hash: 7c76ba11f8742d040b1a874d943c2096f1b3a48db14d2a5b411fd5dad5d1bc2d
+Executable Program Hash from repo: 6877a5b732b3494b828a324ec846d526d962223959534dbaf4209e0da3b2d6a9
+On-chain Program Hash: 6877a5b732b3494b828a324ec846d526d962223959534dbaf4209e0da3b2d6a9
 Program hash matches ✅
 ```
 
@@ -143,7 +143,7 @@ Program hash matches ✅
 ### Marginfi V2
 
 ```
-solana-verify verify-from-repo -um --program-id MFv2hWf31Z9kbCa1snEPYctwafyhdvnV7FZnsebVacA https://github.com/mrgnlabs/marginfi-v2 --library-name marginfi -- --features mainnet-beta
+solana-verify verify-from-repo -um --program-id MFv2hWf31Z9kbCa1snEPYctwafyhdvnV7FZnsebVacA https://github.com/mrgnlabs/marginfi-v2 --commit-hash d33e649e415c354cc2a1e3c49131725552d69ba0 --library-name marginfi -- --features mainnet-beta
 ```
 
 Final Output:
@@ -151,20 +151,6 @@ Final Output:
 ```
 Executable Program Hash from repo: 7b37482dd6b2159932b5c2595bc6ce62cf6e587ae67f237c8152b802bf7d7bb8
 On-chain Program Hash: 7b37482dd6b2159932b5c2595bc6ce62cf6e587ae67f237c8152b802bf7d7bb8
-Program hash matches ✅
-```
-
-### Solend
-
-```
-solana-verify verify-from-repo -um --program-id So1endDq2YkqhipRh3WViPa8hdiSpxWy6z3Z6tMCpAo https://github.com/solendprotocol/solana-program-library --library-name solend_program -b ellipsislabs/solana:1.14.10 --bpf
-```
-
-Final Output:
-
-```
-Executable Program Hash from repo: f89a43677ab106d2e50d3c41b656d067b6142c02a2508caca1c11c0a963d3b17
-On-chain Program Hash: f89a43677ab106d2e50d3c41b656d067b6142c02a2508caca1c11c0a963d3b17
 Program hash matches ✅
 ```
 
@@ -213,7 +199,7 @@ Which will return the following hash:
 
 By default, this command will strip any trailing zeros away from the program executable and run the sha256 algorithm against it to compute the hash.
 
-To manually verify this program, one could run the following from the root of this repository, which builds a program from source code and computes a hash. *This command takes a long time because it is building the binary in a Docker container*
+To manually verify this program, one could run the following from the root of this repository, which builds a program from source code and computes a hash. _This command takes a long time because it is building the binary in a Docker container_
 
 ```
 solana-verify build $PWD/examples/hello_world
