@@ -95,7 +95,7 @@ mod tests {
     #[test]
     fn test_agave_2_1() -> anyhow::Result<()> {
         const EXPECTED_HASH: &str = "29e7713aa3c48e242e2847bc031fe2a03eb61aae5ecaec8728131e16934de465";
-        let args: Vec<&str> = " verify-from-repo https://github.com/Woody4618/verify-2-1 --program-id kGYz2q2WUYCXhKpgUF4AMR3seDA9eg8sbirP5dhbyhy --commit-hash e0f138fb58b669791c823f44f878cb3547a92a26".split(" ").collect();
+        let args: Vec<&str> = "verify-from-repo https://github.com/Woody4618/verify-2-1 --program-id kGYz2q2WUYCXhKpgUF4AMR3seDA9eg8sbirP5dhbyhy --commit-hash e0f138fb58b669791c823f44f878cb3547a92a26".split(" ").collect();
         test_verify_program_hash_helper(EXPECTED_HASH, &args)?;
         Ok(())
     }
