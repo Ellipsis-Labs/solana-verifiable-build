@@ -21,6 +21,8 @@ jobs:
           - test_marginfi_v2
           - test_local_example
           - test_verify_from_image
+          - test_games_preset
+          - test_agave_2_1
     steps:
       - uses: actions/checkout@v4
 
