@@ -149,8 +149,8 @@ solana-verify verify-from-repo -um --program-id MFv2hWf31Z9kbCa1snEPYctwafyhdvnV
 Final Output:
 
 ```
-Executable Program Hash from repo: 7b37482dd6b2159932b5c2595bc6ce62cf6e587ae67f237c8152b802bf7d7bb8
-On-chain Program Hash: 7b37482dd6b2159932b5c2595bc6ce62cf6e587ae67f237c8152b802bf7d7bb8
+Executable Program Hash from repo: 890d68f48f96991016222b1fcbc2cc81b8ef2dcbf280c44fe378c523c108fad5
+On-chain Program Hash: 890d68f48f96991016222b1fcbc2cc81b8ef2dcbf280c44fe378c523c108fad5
 Program hash matches ✅
 ```
 

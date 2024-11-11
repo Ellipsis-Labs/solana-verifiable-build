@@ -1002,6 +1002,7 @@ pub fn get_pkg_name_from_cargo_toml(cargo_toml_file: &str) -> Option<String> {
     Some(pkg.name)
 }
 
+#[cfg(test)]
 fn test_verify_program_hash_helper(expected_hash: &str, args: &[&str]) -> anyhow::Result<()> {
     let mut child = std::process::Command::new("./target/debug/solana-verify")
         .args(args)
@@ -1052,16 +1053,9 @@ fn test_verify_program_hash_helper(expected_hash: &str, args: &[&str]) -> anyhow
 #[test]
 fn test_phoenix_v1() -> anyhow::Result<()> {
     const EXPECTED_HASH: &str = "6877a5b732b3494b828a324ec846d526d962223959534dbaf4209e0da3b2d6a9";
-
-    let args = &[
-        "verify-from-repo",
-        "-um",
-        "--program-id",
-        "PhoeNiXZ8ByJGLkxNfZRnkUfjvmuYqLR89jjFHGqdXY",
-        "https://github.com/Ellipsis-Labs/phoenix-v1",
-    ];
-
-    test_verify_program_hash_helper(EXPECTED_HASH, args)?;
+    let args: Vec<&str> = 
+        "verify-from-repo -um --program-id PhoeNiXZ8ByJGLkxNfZRnkUfjvmuYqLR89jjFHGqdXY https://github.com/Ellipsis-Labs/phoenix-v1".split(" ").collect();
+    test_verify_program_hash_helper(EXPECTED_HASH, &args)?;
     Ok(())
 }
 
@@ -1083,8 +1077,54 @@ fn test_drift_v2() -> anyhow::Result<()> {
 
 #[test]
 fn test_marginfi_v2() -> anyhow::Result<()> {
-    const EXPECTED_HASH: &str = "7b37482dd6b2159932b5c2595bc6ce62cf6e587ae67f237c8152b802bf7d7bb8";
+    const EXPECTED_HASH: &str = "890d68f48f96991016222b1fcbc2cc81b8ef2dcbf280c44fe378c523c108fad5";
     let args: Vec<&str> = "verify-from-repo -um --program-id MFv2hWf31Z9kbCa1snEPYctwafyhdvnV7FZnsebVacA https://github.com/mrgnlabs/marginfi-v2 --commit-hash d33e649e415c354cc2a1e3c49131725552d69ba0 --library-name marginfi".split(" ").collect();
     test_verify_program_hash_helper(EXPECTED_HASH, &args)?;
+    Ok(())
+}
+
+#[test]
+fn test_local_example() -> anyhow::Result<()> {
+    const EXPECTED_HASH: &str = "08d91368d349c2b56c712422f6d274a1e8f1946ff2ecd1dc3efc3ebace52a760";
+
+    let args: Vec<&str> = "build ./examples/hello_world".split(" ").collect();
+    let child = std::process::Command::new("./target/debug/solana-verify")
+        .args(args)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .context("Failed to execute solana-verify command")?;
+
+    let output = child
+        .wait_with_output()
+        .context("Failed to wait for solana-verify command")?;
+
+    if !output.status.success() {
+        let error = String::from_utf8_lossy(&output.stderr);
+        anyhow::bail!("Command failed: {}", error);
+    }
+
+
+    let args: Vec<&str> = "get-executable-hash ./examples/hello_world/target/deploy/hello_world.so".split(" ").collect();
+    let child = std::process::Command::new("./target/debug/solana-verify")
+        .args(&args)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .context("Failed to execute solana-verify command")?;
+
+    let output = child
+        .wait_with_output()
+        .context("Failed to wait for solana-verify command")?;
+
+    if !output.status.success() {
+        let error = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        anyhow::bail!("Command failed: {}", error);
+    }
+
+    let hash = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    assert_eq!(hash, EXPECTED_HASH, "Program hash {} does not match expected value {}", hash, EXPECTED_HASH);
     Ok(())
 }
