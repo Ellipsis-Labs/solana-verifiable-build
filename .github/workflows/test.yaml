@@ -19,6 +19,8 @@ jobs:
           - test_squads_v3
           - test_drift_v2
           - test_marginfi_v2
+          - test_local_example
+          - test_verify_from_image
     steps:
       - uses: actions/checkout@v4
 
