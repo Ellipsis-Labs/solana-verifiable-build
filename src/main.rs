@@ -1128,3 +1128,26 @@ fn test_local_example() -> anyhow::Result<()> {
     assert_eq!(hash, EXPECTED_HASH, "Program hash {} does not match expected value {}", hash, EXPECTED_HASH);
     Ok(())
 }
+
+
+#[test]
+fn test_verify_from_image() -> anyhow::Result<()> {
+    let args: Vec<&str> = "verify-from-image -e examples/hello_world/target/deploy/hello_world.so -i ellipsislabs/hello_world_verifiable_build:latest -p 2ZrriTQSVekoj414Ynysd48jyn4AX6ZF4TTJRqHfbJfn".split(" ").collect();
+    let child = std::process::Command::new("./target/debug/solana-verify")
+        .args(args)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .context("Failed to execute solana-verify command")?;
+
+    let output = child
+        .wait_with_output()
+        .context("Failed to wait for solana-verify command")?;
+
+    if !output.status.success() {
+        let error = String::from_utf8_lossy(&output.stderr);
+        anyhow::bail!("Command failed: {}", error);
+    }
+    Ok(())
+}
