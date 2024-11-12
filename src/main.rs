@@ -28,6 +28,9 @@ pub mod image_config;
 pub mod solana_program;
 use image_config::IMAGE_MAP;
 
+#[cfg(test)]
+mod test;
+
 use crate::{
     api::send_job_to_remote,
     solana_program::{process_close, upload_program},
@@ -426,7 +429,7 @@ pub fn build(
         } else if let Some(digest) = IMAGE_MAP.get(&(major, minor, patch)) {
                 println!("Found docker image for Solana version {}.{}.{}", major, minor, patch);
                 solana_version = Some(format!("v{}.{}.{}", major, minor, patch));
-                format!("ellipsislabs/solana@{}", digest)
+                format!("solanafoundation/solana-verifiable-build@{}", digest)
             } else {
                 println!("Unable to find docker image for Solana version {}.{}.{}", major, minor, patch);
                 let prev = IMAGE_MAP.range(..(major, minor, patch)).next_back();
@@ -441,7 +444,7 @@ pub fn build(
                 };
                 println!("Using backup docker image for Solana version {}.{}.{}", version.0, version.1, version.2);
                 solana_version = Some(format!("v{}.{}.{}", version.0, version.1, version.2));
-                format!("ellipsislabs/solana@{}", digest)
+                format!("solanafoundation/solana-verifiable-build@{}", digest)
             }
     });
 

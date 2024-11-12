@@ -2,11 +2,15 @@ name: Update Docker Image Whitelist
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - master
+    paths:
+      - 'docker/**'
 
 permissions:
   contents: write
   pull-requests: write
-  packages: read
 
 jobs:
   update-docker-image-whitelist:
@@ -37,9 +41,6 @@ jobs:
           uv sync --all-extras --dev
 
       - name: Run generate_dockerfiles.py
-        env:
-          USE_GHCR: "true"
-          GITHUB_TOKEN: ${{ steps.generate-token.outputs.token  }}
         run: uv run update_image_whitelist.py
 
       - name: Create Pull Request
