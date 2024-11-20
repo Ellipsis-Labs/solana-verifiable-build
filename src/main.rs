@@ -1,7 +1,7 @@
 use anyhow::anyhow;
 use cargo_lock::Lockfile;
 use cargo_toml::Manifest;
-use clap::{App, Arg, SubCommand};
+use clap::{App, AppSettings, Arg, SubCommand};
 use signal_hook::{
     consts::{SIGINT, SIGTERM},
     iterator::Signals,
@@ -69,6 +69,7 @@ async fn main() -> anyhow::Result<()> {
         .author("Ellipsis Labs <maintainers@ellipsislabs.xyz>")
         .version(env!("CARGO_PKG_VERSION"))
         .about("A CLI tool for building verifiable Solana programs")
+        .setting(AppSettings::SubcommandRequiredElseHelp)
         .arg(Arg::with_name("url")
             .short("u")
             .long("url")
