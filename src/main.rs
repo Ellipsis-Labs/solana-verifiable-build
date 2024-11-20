@@ -23,9 +23,13 @@ use std::{
 };
 use uuid::Uuid;
 pub mod api;
+#[rustfmt::skip]
 pub mod image_config;
 pub mod solana_program;
 use image_config::IMAGE_MAP;
+
+#[cfg(test)]
+mod test;
 
 use crate::{
     api::send_job_to_remote,
@@ -54,16 +58,17 @@ async fn main() -> anyhow::Result<()> {
     let caught_signal_clone = caught_signal.clone();
     let handle = signals.handle();
     std::thread::spawn(move || {
+        #[allow(clippy::never_loop)]
         for _ in signals.forever() {
             caught_signal_clone.store(true, Ordering::Relaxed);
             break;
         }
     });
 
-    let matches = App::new("solana-verifier")
-        .author("Ellipsis")
-        .version("0.1.0")
-        .about("Solana Verifiable Build Tool")
+    let matches = App::new("solana-verify")
+        .author("Ellipsis Labs <maintainers@ellipsislabs.xyz>")
+        .version(env!("CARGO_PKG_VERSION"))
+        .about("A CLI tool for building verifiable Solana programs")
         .arg(Arg::with_name("url")
             .short("u")
             .long("url")
@@ -173,12 +178,12 @@ async fn main() -> anyhow::Result<()> {
                 .last(true)
                 .help("Arguments to pass to the underlying `cargo build-bpf` command")))
         .subcommand(SubCommand::with_name("close")
-            .about("")
+            .about("Close the otter-verify PDA account associated with the given program ID")
             .arg(Arg::with_name("program-id")
                 .long("program-id")
                 .required(true)
                 .takes_value(true)
-                .help("")))
+                .help("The address of the program to close the PDA")))
         .get_matches();
 
     let res = match matches.subcommand() {
@@ -187,9 +192,20 @@ async fn main() -> anyhow::Result<()> {
             let library_name = sub_m.value_of("library-name").map(|s| s.to_string());
             let base_image = sub_m.value_of("base-image").map(|s| s.to_string());
             let bpf_flag = sub_m.is_present("bpf");
-            let cargo_args = sub_m.values_of("cargo-args").unwrap_or_default().map(|s| s.to_string()).collect();
-            build(mount_directory, library_name, base_image, bpf_flag, cargo_args, &mut container_id)
-        },
+            let cargo_args = sub_m
+                .values_of("cargo-args")
+                .unwrap_or_default()
+                .map(|s| s.to_string())
+                .collect();
+            build(
+                mount_directory,
+                library_name,
+                base_image,
+                bpf_flag,
+                cargo_args,
+                &mut container_id,
+            )
+        }
         ("verify-from-image", Some(sub_m)) => {
             let executable_path = sub_m.value_of("executable-path-in-image").unwrap();
             let image = sub_m.value_of("image").unwrap();
@@ -204,25 +220,31 @@ async fn main() -> anyhow::Result<()> {
                 &mut temp_dir,
                 &mut container_id,
             )
-        },
+        }
         ("get-executable-hash", Some(sub_m)) => {
             let filepath = sub_m.value_of("filepath").map(|s| s.to_string()).unwrap();
             let program_hash = get_file_hash(&filepath)?;
             println!("{}", program_hash);
             Ok(())
-        },
+        }
         ("get-buffer-hash", Some(sub_m)) => {
             let buffer_address = sub_m.value_of("buffer-address").unwrap();
-            let buffer_hash = get_buffer_hash(matches.value_of("url").map(|s| s.to_string()), Pubkey::try_from(buffer_address)?)?;
+            let buffer_hash = get_buffer_hash(
+                matches.value_of("url").map(|s| s.to_string()),
+                Pubkey::try_from(buffer_address)?,
+            )?;
             println!("{}", buffer_hash);
             Ok(())
-        },
+        }
         ("get-program-hash", Some(sub_m)) => {
             let program_id = sub_m.value_of("program-id").unwrap();
-            let program_hash = get_program_hash(matches.value_of("url").map(|s| s.to_string()), Pubkey::try_from(program_id)?)?;
+            let program_hash = get_program_hash(
+                matches.value_of("url").map(|s| s.to_string()),
+                Pubkey::try_from(program_id)?,
+            )?;
             println!("{}", program_hash);
             Ok(())
-        },
+        }
         ("verify-from-repo", Some(sub_m)) => {
             let remote = sub_m.is_present("remote");
             let mount_path = sub_m.value_of("mount-path").map(|s| s.to_string()).unwrap();
@@ -233,7 +255,11 @@ async fn main() -> anyhow::Result<()> {
             let library_name = sub_m.value_of("library-name").map(|s| s.to_string());
             let bpf_flag = sub_m.is_present("bpf");
             let current_dir = sub_m.is_present("current-dir");
-            let cargo_args: Vec<String> = sub_m.values_of("cargo-args").unwrap_or_default().map(|s| s.to_string()).collect();
+            let cargo_args: Vec<String> = sub_m
+                .values_of("cargo-args")
+                .unwrap_or_default()
+                .map(|s| s.to_string())
+                .collect();
 
             verify_from_repo(
                 remote,
@@ -249,10 +275,18 @@ async fn main() -> anyhow::Result<()> {
                 current_dir,
                 &mut container_id,
                 &mut temp_dir,
-            ).await
+            )
+            .await
+        }
+        ("close", Some(sub_m)) => {
+            let program_id = sub_m.value_of("program-id").unwrap();
+            process_close(Pubkey::try_from(program_id)?).await
         }
         // Handle other subcommands in a similar manner, for now let's panic
-        _ => panic!("Unknown subcommand: {:?}\nUse '--help' to see available commands", matches.subcommand().0)
+        _ => panic!(
+            "Unknown subcommand: {:?}\nUse '--help' to see available commands",
+            matches.subcommand().0
+        ),
     };
 
     if caught_signal.load(Ordering::Relaxed) || res.is_err() {
@@ -395,7 +429,7 @@ pub fn build(
         } else if let Some(digest) = IMAGE_MAP.get(&(major, minor, patch)) {
                 println!("Found docker image for Solana version {}.{}.{}", major, minor, patch);
                 solana_version = Some(format!("v{}.{}.{}", major, minor, patch));
-                format!("ellipsislabs/solana@{}", digest)
+                format!("solanafoundation/solana-verifiable-build@{}", digest)
             } else {
                 println!("Unable to find docker image for Solana version {}.{}.{}", major, minor, patch);
                 let prev = IMAGE_MAP.range(..(major, minor, patch)).next_back();
@@ -410,7 +444,7 @@ pub fn build(
                 };
                 println!("Using backup docker image for Solana version {}.{}.{}", version.0, version.1, version.2);
                 solana_version = Some(format!("v{}.{}.{}", version.0, version.1, version.2));
-                format!("ellipsislabs/solana@{}", digest)
+                format!("solanafoundation/solana-verifiable-build@{}", digest)
             }
     });
 
@@ -834,7 +868,7 @@ pub async fn verify_from_repo(
     if let Some(commit_hash) = commit_hash.as_ref() {
         let result = std::process::Command::new("git")
             .args(["-C", &verify_tmp_root_path])
-            .args(["checkout", &commit_hash])
+            .args(["checkout", commit_hash])
             .output()
             .map_err(|e| anyhow!("Failed to checkout commit hash: {:?}", e));
         if result.is_ok() {

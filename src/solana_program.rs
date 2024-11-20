@@ -2,7 +2,8 @@ use anyhow::anyhow;
 use solana_cli_config::Config;
 use solana_client::rpc_client::RpcClient;
 use std::{
-    io::{self, Read, Write}, str::FromStr
+    io::{self, Read, Write},
+    str::FromStr,
 };
 
 use borsh::{to_vec, BorshDeserialize, BorshSerialize};
@@ -134,32 +135,27 @@ pub async fn upload_program(
     program_address: Pubkey,
     connection_url: Option<String>,
 ) -> anyhow::Result<()> {
-    if prompt_user_input("Do you want to upload the program verification to the Solana Blockchain? (y/n) ") {
+    if prompt_user_input(
+        "Do you want to upload the program verification to the Solana Blockchain? (y/n) ",
+    ) {
         println!("Uploading the program verification params to the Solana blockchain...");
-        
+
         let cli_config = get_user_config()?;
-        
+
         let signer_pubkey = cli_config.0.pubkey();
         let connection = match connection_url.as_deref() {
-            Some("m") => {
-                RpcClient::new("https://api.mainnet-beta.solana.com")
-            },
-            Some("d") => {
-                RpcClient::new("https://api.devnet.solana.com")
-            },
-            Some("l") => {
-                RpcClient::new("http://localhost:8899")
-            },
-            Some(url) => {
-                RpcClient::new(url)
-            },
+            Some("m") => RpcClient::new("https://api.mainnet-beta.solana.com"),
+            Some("d") => RpcClient::new("https://api.devnet.solana.com"),
+            Some("l") => RpcClient::new("http://localhost:8899"),
+            Some(url) => RpcClient::new(url),
             None => cli_config.1,
         };
         let rpc_url = connection.url();
         println!("Using connection url: {}", rpc_url);
-        
-        let last_deployed_slot = get_last_deployed_slot(&rpc_url, &program_address.to_string()).await
-        .map_err(|err| anyhow!("Unable to get last deployed slot: {}", err))?;
+
+        let last_deployed_slot = get_last_deployed_slot(&rpc_url, &program_address.to_string())
+            .await
+            .map_err(|err| anyhow!("Unable to get last deployed slot: {}", err))?;
 
         let input_params = InputParams {
             version: env!("CARGO_PKG_VERSION").to_string(),
@@ -236,7 +232,8 @@ pub async fn process_close(program_address: Pubkey) -> anyhow::Result<()> {
     let connection = user_config.1;
     let rpc_url = connection.url();
 
-    let last_deployed_slot = get_last_deployed_slot(&rpc_url, &program_address.to_string()).await
+    let last_deployed_slot = get_last_deployed_slot(&rpc_url, &program_address.to_string())
+        .await
         .map_err(|err| anyhow!("Unable to get last deployed slot: {}", err))?;
 
     let otter_verify_program_id = Pubkey::from_str(OTTER_VERIFY_PROGRAMID)?;
