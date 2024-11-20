@@ -177,6 +177,26 @@ async fn main() -> anyhow::Result<()> {
                 .multiple(true)
                 .last(true)
                 .help("Arguments to pass to the underlying `cargo build-bpf` command")))
+        .subcommand(SubCommand::with_name("write")
+            .about("Write parameters to the otter-verify PDA account associated with the given program ID")
+            .arg(Arg::with_name("program-id")
+                .long("program-id")
+                .required(true)
+                .takes_value(true)
+                .help("The address of the program to close the PDA"))
+            .arg(Arg::with_name("git-url")
+                .long("git-url")
+                .required(true)
+                .takes_value(true)
+                .help("The HTTPS url of the repository to verify"))
+            .arg(Arg::with_name("commit")
+                .long("commit")
+                .takes_value(true)
+                .help("The optional commit hash of the repository to verify"))
+            .arg(Arg::with_name("flags")
+                .multiple(true)
+                .last(true)
+                .help("Additional flags and values to pass")))
         .subcommand(SubCommand::with_name("close")
             .about("Close the otter-verify PDA account associated with the given program ID")
             .arg(Arg::with_name("program-id")
@@ -277,6 +297,30 @@ async fn main() -> anyhow::Result<()> {
                 &mut temp_dir,
             )
             .await
+        }
+        ("write", Some(sub_m)) => {
+            let program_id = sub_m.value_of("program-id").unwrap();
+            let git_url = sub_m.value_of("git-url").unwrap();
+            let commit = sub_m.value_of("commit").map(|s| s.to_string());
+            let url = matches.value_of("url").map(|s| s.to_string());
+            // Check program id is valid
+            Pubkey::try_from(program_id).map_err(|_| anyhow!("Invalid program id"))?;
+
+            let flags: Vec<String> = sub_m
+                .values_of("flags")
+                .unwrap_or_default()
+                .map(|s| s.to_string())
+                .collect();
+
+            upload_program(
+                git_url.to_string(),
+                &commit,
+                flags,
+                Pubkey::try_from(program_id)?,
+                url,
+            )
+            .await?;
+            Ok(())
         }
         ("close", Some(sub_m)) => {
             let program_id = sub_m.value_of("program-id").unwrap();

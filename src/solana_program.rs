@@ -8,8 +8,8 @@ use std::{
 
 use borsh::{to_vec, BorshDeserialize, BorshSerialize};
 use solana_sdk::{
-    instruction::AccountMeta, message::Message, pubkey::Pubkey, signature::Keypair, signer::Signer,
-    system_program, transaction::Transaction,
+    commitment_config::CommitmentConfig, instruction::AccountMeta, message::Message,
+    pubkey::Pubkey, signature::Keypair, signer::Signer, system_program, transaction::Transaction,
 };
 
 use crate::api::get_last_deployed_slot;
@@ -64,7 +64,12 @@ fn get_user_config() -> anyhow::Result<(Keypair, RpcClient)> {
     let config_file = solana_cli_config::CONFIG_FILE
         .as_ref()
         .ok_or_else(|| anyhow!("Unable to get config file path"))?;
-    let cli_config: Config = Config::load(config_file)?;
+
+    let cli_config: Config = Config::load(config_file)
+        .map_err(|err| anyhow!(
+            "Unable to load config file {}: {}\nTry running `solana config set -um` to init a config if you haven't already.",
+            config_file, err
+        ))?;
 
     let signer = solana_clap_utils::keypair::keypair_from_path(
         &Default::default(),
@@ -119,12 +124,18 @@ fn process_otter_verify_ixs(
     tx.sign(&[&signer], connection.get_latest_blockhash()?);
 
     let tx_id = connection
-        .send_and_confirm_transaction_with_spinner(&tx)
+        .send_and_confirm_transaction_with_spinner_and_commitment(
+            &tx,
+            CommitmentConfig::confirmed(),
+        )
         .map_err(|err| {
             println!("{:?}", err);
             anyhow!("Failed to send transaction to the network.")
         })?;
-    println!("Program uploaded successfully. Transaction ID: {}", tx_id);
+    println!(
+        "Program verification params uploaded successfully. Transaction ID: {}",
+        tx_id
+    );
     Ok(())
 }
 
@@ -136,7 +147,12 @@ pub async fn upload_program(
     connection_url: Option<String>,
 ) -> anyhow::Result<()> {
     if prompt_user_input(
-        "Do you want to upload the program verification to the Solana Blockchain? (y/n) ",
+        &format!("Do you want to upload these parameters for program verification to the Solana Blockchain?\nProgram ID: {}\nGit URL: {}\nCommit Hash: {}\nArgs: {:?}\n(y/n) ",
+            program_address,
+            git_url,
+            commit.as_ref().unwrap_or(&"None".to_string()),
+            args,
+        ),
     ) {
         println!("Uploading the program verification params to the Solana blockchain...");
 
