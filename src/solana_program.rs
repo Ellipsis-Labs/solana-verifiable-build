@@ -60,19 +60,18 @@ fn create_ix_data(params: &InputParams, ix: &OtterVerifyInstructions) -> Vec<u8>
     data
 }
 
+fn get_keypair_from_path(path: &str) -> anyhow::Result<Keypair> {
+    solana_clap_utils::keypair::keypair_from_path(&Default::default(), &path, "keypair", false)
+        .map_err(|err| anyhow!("Unable to get signer from path: {}", err))
+}
+
 fn get_user_config() -> anyhow::Result<(Keypair, RpcClient)> {
     let config_file = solana_cli_config::CONFIG_FILE
         .as_ref()
         .ok_or_else(|| anyhow!("Unable to get config file path"))?;
     let cli_config: Config = Config::load(config_file)?;
 
-    let signer = solana_clap_utils::keypair::keypair_from_path(
-        &Default::default(),
-        &cli_config.keypair_path,
-        "keypair",
-        false,
-    )
-    .map_err(|err| anyhow!("Unable to get signer from path: {}", err))?;
+    let signer = get_keypair_from_path(&cli_config.keypair_path)?;
 
     let rpc_client = RpcClient::new(cli_config.json_rpc_url.clone());
     Ok((signer, rpc_client))
@@ -84,9 +83,14 @@ fn process_otter_verify_ixs(
     program_address: Pubkey,
     instruction: OtterVerifyInstructions,
     rpc_client: RpcClient,
+    path_to_keypair: Option<String>,
 ) -> anyhow::Result<()> {
     let user_config = get_user_config()?;
-    let signer = user_config.0;
+    let signer = if let Some(path_to_keypair) = path_to_keypair {
+        get_keypair_from_path(&path_to_keypair)?
+    } else {
+        user_config.0
+    };
     let signer_pubkey = signer.pubkey();
     let connection = rpc_client;
 
@@ -135,15 +139,23 @@ pub async fn upload_program(
     program_address: Pubkey,
     connection_url: Option<String>,
     skip_prompt: bool,
+    path_to_keypair: Option<String>,
 ) -> anyhow::Result<()> {
-    if skip_prompt || prompt_user_input(
-        "Do you want to upload the program verification to the Solana Blockchain? (y/n) ",
-    ) {
+    if skip_prompt
+        || prompt_user_input(
+            "Do you want to upload the program verification to the Solana Blockchain? (y/n) ",
+        )
+    {
         println!("Uploading the program verification params to the Solana blockchain...");
 
         let cli_config = get_user_config()?;
 
-        let signer_pubkey = cli_config.0.pubkey();
+        let signer_pubkey: Pubkey = if let Some(ref path_to_keypair) = path_to_keypair {
+            get_keypair_from_path(&path_to_keypair)?.pubkey()
+        } else {
+            cli_config.0.pubkey()
+        };
+
         let connection = match connection_url.as_deref() {
             Some("m") => RpcClient::new("https://api.mainnet-beta.solana.com"),
             Some("d") => RpcClient::new("https://api.devnet.solana.com"),
@@ -194,6 +206,7 @@ pub async fn upload_program(
                 program_address,
                 OtterVerifyInstructions::Update,
                 connection,
+                path_to_keypair,
             )?;
         } else if connection.get_account(&pda_account_2).is_ok() {
             let wanna_create_new_pda = prompt_user_input(
@@ -206,6 +219,7 @@ pub async fn upload_program(
                     program_address,
                     OtterVerifyInstructions::Initialize,
                     connection,
+                    path_to_keypair,
                 )?;
             }
             return Ok(());
@@ -217,6 +231,7 @@ pub async fn upload_program(
                 program_address,
                 OtterVerifyInstructions::Initialize,
                 connection,
+                path_to_keypair,
             )?;
         }
     } else {
@@ -260,6 +275,7 @@ pub async fn process_close(program_address: Pubkey) -> anyhow::Result<()> {
             program_address,
             OtterVerifyInstructions::Close,
             connection,
+            None,
         )?;
     } else {
         return Err(anyhow!(
