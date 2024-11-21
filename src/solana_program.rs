@@ -21,7 +21,8 @@ use solana_sdk::commitment_config::{CommitmentConfig, CommitmentLevel};
 
 use crate::api::get_last_deployed_slot;
 
-const OTTER_VERIFY_PROGRAMID: &str = "verifycLy8mB96wd9wqq3WDXQwM4oU6r42Th37Db9fC";
+const OTTER_VERIFY_PROGRAM_ID: Pubkey =
+    solana_sdk::pubkey!("verifycLy8mB96wd9wqq3WDXQwM4oU6r42Th37Db9fC");
 const OTTER_SIGNER: &str = "9VWiUUhgNoRwTH5NVehYJEDwcotwYX3VgW4MChiHPAqU";
 
 #[derive(BorshDeserialize, BorshSerialize, Debug)]
@@ -113,7 +114,7 @@ fn process_otter_verify_ixs(
     pda_account: Pubkey,
     program_address: Pubkey,
     instruction: OtterVerifyInstructions,
-    rpc_client: RpcClient,
+    rpc_client: &RpcClient,
     path_to_keypair: Option<String>,
 ) -> anyhow::Result<()> {
     let user_config = get_user_config()?;
@@ -130,7 +131,6 @@ fn process_otter_verify_ixs(
     } else {
         instruction.get_discriminant()
     };
-    let otter_verify_program_id = Pubkey::from_str(OTTER_VERIFY_PROGRAMID)?;
 
     let mut accounts_meta_vec = vec![
         AccountMeta::new(pda_account, false),
@@ -143,7 +143,7 @@ fn process_otter_verify_ixs(
     }
 
     let ix = solana_sdk::instruction::Instruction::new_with_bytes(
-        otter_verify_program_id,
+        OTTER_VERIFY_PROGRAM_ID,
         &ix_data,
         accounts_meta_vec,
     );
@@ -163,12 +163,27 @@ fn process_otter_verify_ixs(
     Ok(())
 }
 
+pub fn resolve_rpc_url(url: Option<String>) -> anyhow::Result<RpcClient> {
+    let cli_config = get_user_config()?;
+
+    let connection = match url.as_deref() {
+        Some("m") => RpcClient::new("https://api.mainnet-beta.solana.com"),
+        Some("d") => RpcClient::new("https://api.devnet.solana.com"),
+        Some("t") => RpcClient::new("https://api.testnet.solana.com"),
+        Some("l") => RpcClient::new("http://localhost:8899"),
+        Some(url) => RpcClient::new(url),
+        None => cli_config.1,
+    };
+
+    Ok(connection)
+}
+
 pub async fn upload_program(
     git_url: String,
     commit: &Option<String>,
     args: Vec<String>,
     program_address: Pubkey,
-    connection_url: Option<String>,
+    connection: &RpcClient,
     skip_prompt: bool,
     path_to_keypair: Option<String>,
 ) -> anyhow::Result<()> {
@@ -187,17 +202,10 @@ pub async fn upload_program(
             cli_config.0.pubkey()
         };
 
-        let connection = match connection_url.as_deref() {
-            Some("m") => RpcClient::new("https://api.mainnet-beta.solana.com"),
-            Some("d") => RpcClient::new("https://api.devnet.solana.com"),
-            Some("l") => RpcClient::new("http://localhost:8899"),
-            Some(url) => RpcClient::new(url),
-            None => cli_config.1,
-        };
-        let rpc_url = connection.url();
-        println!("Using connection url: {}", rpc_url);
+        // let rpc_url = connection.url();
+        println!("Using connection url: {}", connection.url());
 
-        let last_deployed_slot = get_last_deployed_slot(&rpc_url, &program_address.to_string())
+        let last_deployed_slot = get_last_deployed_slot(&connection, &program_address.to_string())
             .await
             .map_err(|err| anyhow!("Unable to get last deployed slot: {}", err))?;
 
@@ -209,25 +217,12 @@ pub async fn upload_program(
             deployed_slot: last_deployed_slot,
         };
 
-        let otter_verify_program_id = Pubkey::from_str(OTTER_VERIFY_PROGRAMID)?;
-
         // Possible PDA-1: Signer is current signer then we can update the program
-        let seeds: &[&[u8]; 3] = &[
-            b"otter_verify",
-            &signer_pubkey.to_bytes(),
-            &program_address.to_bytes(),
-        ];
-
-        let (pda_account_1, _) = Pubkey::find_program_address(seeds, &otter_verify_program_id);
+        let pda_account_1 = find_build_params_pda(&program_address, &signer_pubkey).0;
 
         // Possible PDA-2: signer is otter signer
         let otter_signer = Pubkey::from_str(OTTER_SIGNER)?;
-        let seeds: &[&[u8]; 3] = &[
-            b"otter_verify",
-            &otter_signer.to_bytes(),
-            &program_address.to_bytes(),
-        ];
-        let (pda_account_2, _) = Pubkey::find_program_address(seeds, &otter_verify_program_id);
+        let pda_account_2 = find_build_params_pda(&program_address, &otter_signer).0;
 
         if connection.get_account(&pda_account_1).is_ok() {
             println!("Program already uploaded by the current signer. Updating the program.");
@@ -272,26 +267,21 @@ pub async fn upload_program(
     Ok(())
 }
 
-pub async fn process_close(program_address: Pubkey) -> anyhow::Result<()> {
+fn find_build_params_pda(program_id: &Pubkey, signer: &Pubkey) -> (Pubkey, u8) {
+    let seeds: &[&[u8]; 3] = &[b"otter_verify", &signer.to_bytes(), &program_id.to_bytes()];
+    Pubkey::find_program_address(seeds, &OTTER_VERIFY_PROGRAM_ID)
+}
+
+pub async fn process_close(program_address: Pubkey, connection: &RpcClient) -> anyhow::Result<()> {
     let user_config = get_user_config()?;
     let signer = user_config.0;
     let signer_pubkey = signer.pubkey();
-    let connection = user_config.1;
-    let rpc_url = connection.url();
 
-    let last_deployed_slot = get_last_deployed_slot(&rpc_url, &program_address.to_string())
+    let last_deployed_slot = get_last_deployed_slot(&connection, &program_address.to_string())
         .await
         .map_err(|err| anyhow!("Unable to get last deployed slot: {}", err))?;
 
-    let otter_verify_program_id = Pubkey::from_str(OTTER_VERIFY_PROGRAMID)?;
-
-    let seeds: &[&[u8]; 3] = &[
-        b"otter_verify",
-        &signer_pubkey.to_bytes(),
-        &program_address.to_bytes(),
-    ];
-
-    let (pda_account, _) = Pubkey::find_program_address(seeds, &otter_verify_program_id);
+    let pda_account = find_build_params_pda(&program_address, &signer_pubkey).0;
 
     if connection.get_account(&pda_account).is_ok() {
         process_otter_verify_ixs(
@@ -320,6 +310,37 @@ pub async fn process_close(program_address: Pubkey) -> anyhow::Result<()> {
     Ok(())
 }
 
+pub async fn get_program_pda(
+    client: &RpcClient,
+    program_id: &Pubkey,
+    signer_pubkey: Option<String>,
+) -> anyhow::Result<(Pubkey, OtterBuildParams)> {
+    let signer_pubkey = if let Some(signer_pubkey) = signer_pubkey {
+        Pubkey::from_str(&signer_pubkey)?
+    } else {
+        get_user_config()?.0.pubkey()
+    };
+
+    let pda = find_build_params_pda(program_id, &signer_pubkey).0;
+    let account = client
+        .get_account_with_commitment(
+            &pda,
+            CommitmentConfig {
+                commitment: CommitmentLevel::Confirmed,
+            },
+        )
+        .unwrap();
+    if let Some(account) = account.value {
+        Ok((
+            pda,
+            OtterBuildParams::try_from_slice(&account.data[8..])
+                .map_err(|err| anyhow!("Unable to parse build params: {}", err))?,
+        ))
+    } else {
+        Err(anyhow!("PDA not found"))
+    }
+}
+
 pub async fn get_all_pdas_available(
     client: &RpcClient,
     program_id_pubkey: &Pubkey,
@@ -342,10 +363,7 @@ pub async fn get_all_pdas_available(
         with_context: None,
     };
 
-    let accounts = client.get_program_accounts_with_config(
-        &Pubkey::from_str(OTTER_VERIFY_PROGRAMID).unwrap(),
-        config,
-    )?;
+    let accounts = client.get_program_accounts_with_config(&OTTER_VERIFY_PROGRAM_ID, config)?;
 
     let mut pdas = vec![];
     for account in accounts {

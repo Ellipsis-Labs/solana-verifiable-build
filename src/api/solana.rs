@@ -2,6 +2,7 @@
 
 use reqwest::Client;
 use serde::Deserialize;
+use solana_client::rpc_client::RpcClient;
 use std::error::Error;
 
 #[derive(Deserialize)]
@@ -83,13 +84,13 @@ async fn get_account_info(
 }
 
 pub async fn get_last_deployed_slot(
-    rpc_url: &str,
+    connection: &RpcClient,
     program_address: &str,
 ) -> Result<u64, Box<dyn Error>> {
     let client = Client::new();
 
     // Step 1: Get account info for the program address
-    let account_info = get_account_info(&client, rpc_url, program_address).await?;
+    let account_info = get_account_info(&client, &connection.url(), program_address).await?;
     let program_data_address = account_info
         .data
         .parsed
@@ -98,7 +99,8 @@ pub async fn get_last_deployed_slot(
         .ok_or("No programData found in program account response")?;
 
     // Step 2: Get account info for the program data address
-    let program_data_info = get_account_info(&client, rpc_url, &program_data_address).await?;
+    let program_data_info =
+        get_account_info(&client, &connection.url(), &program_data_address).await?;
     let last_deployed_slot = program_data_info
         .data
         .parsed
@@ -117,7 +119,8 @@ mod tests {
     async fn test_get_last_deployed_slot() {
         let rpc_url = "https://docs-demo.solana-mainnet.quiknode.pro";
         let program_address = "verifycLy8mB96wd9wqq3WDXQwM4oU6r42Th37Db9fC";
-        let last_deployed_slot = get_last_deployed_slot(rpc_url, program_address).await;
+        let last_deployed_slot =
+            get_last_deployed_slot(&RpcClient::new(rpc_url), program_address).await;
         assert!(last_deployed_slot.is_ok());
     }
 }
