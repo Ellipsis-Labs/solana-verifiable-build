@@ -173,6 +173,10 @@ async fn main() -> anyhow::Result<()> {
             .arg(Arg::with_name("current-dir")
                 .long("current-dir")
                 .help("Verify in current directory"))
+            .arg(Arg::with_name("skip-prompt")
+                .short("y")
+                .long("skip-prompt")
+                .help("Skip the prompt to upload a new program"))
             .arg(Arg::with_name("cargo-args")
                 .multiple(true)
                 .last(true)
@@ -255,6 +259,7 @@ async fn main() -> anyhow::Result<()> {
             let library_name = sub_m.value_of("library-name").map(|s| s.to_string());
             let bpf_flag = sub_m.is_present("bpf");
             let current_dir = sub_m.is_present("current-dir");
+            let skip_prompt = sub_m.is_present("skip-prompt");
             let cargo_args: Vec<String> = sub_m
                 .values_of("cargo-args")
                 .unwrap_or_default()
@@ -273,6 +278,7 @@ async fn main() -> anyhow::Result<()> {
                 bpf_flag,
                 cargo_args,
                 current_dir,
+                skip_prompt,
                 &mut container_id,
                 &mut temp_dir,
             )
@@ -722,6 +728,7 @@ pub async fn verify_from_repo(
     bpf_flag: bool,
     cargo_args: Vec<String>,
     current_dir: bool,
+    skip_prompt: bool,
     container_id_opt: &mut Option<String>,
     temp_dir_opt: &mut Option<String>,
 ) -> anyhow::Result<()> {
@@ -820,6 +827,7 @@ pub async fn verify_from_repo(
             args.iter().map(|&s| s.into()).collect(),
             program_id,
             connection_url,
+            skip_prompt,
         )
         .await;
         if x.is_err() {
@@ -979,6 +987,7 @@ pub async fn verify_from_repo(
                 args.iter().map(|&s| s.into()).collect(),
                 program_id,
                 connection_url,
+                false,
             )
             .await;
             if x.is_err() {

@@ -134,8 +134,9 @@ pub async fn upload_program(
     args: Vec<String>,
     program_address: Pubkey,
     connection_url: Option<String>,
+    skip_prompt: bool,
 ) -> anyhow::Result<()> {
-    if prompt_user_input(
+    if skip_prompt || prompt_user_input(
         "Do you want to upload the program verification to the Solana Blockchain? (y/n) ",
     ) {
         println!("Uploading the program verification params to the Solana blockchain...");
