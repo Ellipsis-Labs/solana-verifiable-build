@@ -197,7 +197,9 @@ async fn main() -> anyhow::Result<()> {
         .subcommand(SubCommand::with_name("list-program-pdas")
             .about("List all the PDA information associated with a program ID")
             .arg(Arg::with_name("program-id")
+                .long("program-id")
                 .required(true)
+                .takes_value(true)
                 .help("Program ID of the program to list PDAs for")))
         .get_matches();
 
@@ -1128,6 +1130,5 @@ pub async fn list_program_pdas(program_id: Pubkey, url: Option<String>) -> anyho
         println!("----------------------------------------------------------------");
         println!("{}", build_params);
     }
-    // println!("PDAs for program {}: {:?}", program_id, pdas);
     Ok(())
 }

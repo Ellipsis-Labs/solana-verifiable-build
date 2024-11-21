@@ -310,7 +310,10 @@ pub async fn process_close(program_address: Pubkey) -> anyhow::Result<()> {
         )?;
     } else {
         return Err(anyhow!(
-            "Program account does not exist. Please provide the program address not PDA address."
+            "No PDA found for signer {:?} and program address {:?}. Make sure you are providing the program address, not the PDA address. Check that a signer exists for the program by running `solana-verify list-program-pdas --program-id {:?}`",
+            signer_pubkey,
+            program_address,
+            program_address
         ));
     }
 
