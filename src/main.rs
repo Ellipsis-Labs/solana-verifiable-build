@@ -8,7 +8,7 @@ use signal_hook::{
 };
 use solana_cli_config::{Config, CONFIG_FILE};
 use solana_client::rpc_client::RpcClient;
-use solana_program::get_all_pdas_available;
+use solana_program::{get_all_pdas_available, get_program_pda, resolve_rpc_url, OtterBuildParams};
 use solana_sdk::{
     bpf_loader_upgradeable::{self, UpgradeableLoaderState},
     pubkey::Pubkey,
@@ -196,14 +196,29 @@ async fn main() -> anyhow::Result<()> {
                 .takes_value(true)
                 .help("The address of the program to close the PDA")))
         .subcommand(SubCommand::with_name("list-program-pdas")
-            .about("List all the PDA information associated with a program ID")
+            .about("List all the PDA information associated with a program ID. Requires custom RPC endpoint")
+            .arg(Arg::with_name("program-id")
+                .long("program-id")
+                .required(true)
+                .takes_value(true)))
+        .subcommand(SubCommand::with_name("get-program-pda")
+            .about("Get uploaded PDA information for a given program ID and signer")
             .arg(Arg::with_name("program-id")
                 .long("program-id")
                 .required(true)
                 .takes_value(true)
-                .help("Program ID of the program to list PDAs for")))
+            )
+            .arg(Arg::with_name("signer")
+                .short("s")
+                .long("signer")
+                .required(false)
+                .takes_value(true)
+                .help("Signer to get the PDA for")
+            )
+        )
         .get_matches();
 
+    let connection = resolve_rpc_url(matches.value_of("url").map(|s| s.to_string()))?;
     let res = match matches.subcommand() {
         ("build", Some(sub_m)) => {
             let mount_directory = sub_m.value_of("mount-directory").map(|s| s.to_string());
@@ -256,10 +271,7 @@ async fn main() -> anyhow::Result<()> {
         }
         ("get-program-hash", Some(sub_m)) => {
             let program_id = sub_m.value_of("program-id").unwrap();
-            let program_hash = get_program_hash(
-                matches.value_of("url").map(|s| s.to_string()),
-                Pubkey::try_from(program_id)?,
-            )?;
+            let program_hash = get_program_hash(&connection, Pubkey::try_from(program_id)?)?;
             println!("{}", program_hash);
             Ok(())
         }
@@ -285,7 +297,7 @@ async fn main() -> anyhow::Result<()> {
             verify_from_repo(
                 remote,
                 mount_path,
-                matches.value_of("url").map(|s| s.to_string()),
+                &connection,
                 repo_url,
                 commit_hash,
                 Pubkey::try_from(program_id)?,
@@ -303,12 +315,16 @@ async fn main() -> anyhow::Result<()> {
         }
         ("close", Some(sub_m)) => {
             let program_id = sub_m.value_of("program-id").unwrap();
-            process_close(Pubkey::try_from(program_id)?).await
+            process_close(Pubkey::try_from(program_id)?, &connection).await
         }
         ("list-program-pdas", Some(sub_m)) => {
             let program_id = sub_m.value_of("program-id").unwrap();
-            let url = matches.value_of("url").map(|s| s.to_string());
-            list_program_pdas(Pubkey::try_from(program_id)?, url).await
+            list_program_pdas(Pubkey::try_from(program_id)?, &connection).await
+        }
+        ("get-program-pda", Some(sub_m)) => {
+            let program_id = sub_m.value_of("program-id").unwrap();
+            let signer = sub_m.value_of("signer").map(|s| s.to_string());
+            print_program_pda(Pubkey::try_from(program_id)?, signer, &connection).await
         }
         // Handle other subcommands in a similar manner, for now let's panic
         _ => panic!(
@@ -387,8 +403,7 @@ pub fn get_buffer_hash(url: Option<String>, buffer_address: Pubkey) -> anyhow::R
     Ok(program_hash)
 }
 
-pub fn get_program_hash(url: Option<String>, program_id: Pubkey) -> anyhow::Result<String> {
-    let client = get_client(url);
+pub fn get_program_hash(client: &RpcClient, program_id: Pubkey) -> anyhow::Result<String> {
     let program_buffer =
         Pubkey::find_program_address(&[program_id.as_ref()], &bpf_loader_upgradeable::id()).0;
     let offset = UpgradeableLoaderState::size_of_programdata_metadata();
@@ -397,8 +412,7 @@ pub fn get_program_hash(url: Option<String>, program_id: Pubkey) -> anyhow::Resu
     Ok(program_hash)
 }
 
-pub fn get_genesis_hash(url: Option<String>) -> anyhow::Result<String> {
-    let client = get_client(url);
+pub fn get_genesis_hash(client: &RpcClient) -> anyhow::Result<String> {
     let genesis_hash = client.get_genesis_hash()?;
     Ok(genesis_hash.to_string())
 }
@@ -741,7 +755,7 @@ pub fn verify_from_image(
 pub async fn verify_from_repo(
     remote: bool,
     relative_mount_path: String,
-    connection_url: Option<String>,
+    connection: &RpcClient,
     repo_url: String,
     commit_hash: Option<String>,
     program_id: Pubkey,
@@ -756,7 +770,7 @@ pub async fn verify_from_repo(
     temp_dir_opt: &mut Option<String>,
 ) -> anyhow::Result<()> {
     if remote {
-        let genesis_hash = get_genesis_hash(connection_url.clone())?;
+        let genesis_hash = get_genesis_hash(connection)?;
         if genesis_hash != MAINNET_GENESIS_HASH {
             return Err(anyhow!("Remote verification only works with mainnet. Please omit the --remote flag to verify locally."));
         }
@@ -849,7 +863,7 @@ pub async fn verify_from_repo(
             &commit_hash.clone(),
             args.iter().map(|&s| s.into()).collect(),
             program_id,
-            connection_url,
+            connection,
             skip_prompt,
             path_to_keypair,
         )
@@ -987,7 +1001,7 @@ pub async fn verify_from_repo(
         base_image.clone(),
         bpf_flag,
         library_name.clone(),
-        connection_url.clone(),
+        connection,
         program_id,
         cargo_args.clone(),
         container_id_opt,
@@ -1010,7 +1024,7 @@ pub async fn verify_from_repo(
                 &commit_hash.clone(),
                 args.iter().map(|&s| s.into()).collect(),
                 program_id,
-                connection_url,
+                connection,
                 skip_prompt,
                 path_to_keypair,
             )
@@ -1035,7 +1049,7 @@ pub fn build_and_verify_repo(
     base_image: Option<String>,
     bpf_flag: bool,
     library_name: String,
-    connection_url: Option<String>,
+    connection: &RpcClient,
     program_id: Pubkey,
     cargo_args: Vec<String>,
     container_id_opt: &mut Option<String>,
@@ -1069,7 +1083,7 @@ pub fn build_and_verify_repo(
         "Fetching on-chain program data for program ID: {}",
         program_id,
     );
-    let program_hash = get_program_hash(connection_url, program_id)?;
+    let program_hash = get_program_hash(connection, program_id)?;
 
     Ok((build_hash, program_hash))
 }
@@ -1122,14 +1136,27 @@ pub fn get_pkg_name_from_cargo_toml(cargo_toml_file: &str) -> Option<String> {
     Some(pkg.name)
 }
 
-pub async fn list_program_pdas(program_id: Pubkey, url: Option<String>) -> anyhow::Result<()> {
-    let client = get_client(url);
+pub fn print_build_params(pubkey: &Pubkey, build_params: &OtterBuildParams) {
+    println!("----------------------------------------------------------------");
+    println!("Address: {:?}", pubkey);
+    println!("----------------------------------------------------------------");
+    println!("{}", build_params);
+}
+
+pub async fn list_program_pdas(program_id: Pubkey, client: &RpcClient) -> anyhow::Result<()> {
     let pdas = get_all_pdas_available(&client, &program_id).await?;
     for (pda, build_params) in pdas {
-        println!("----------------------------------------------------------------");
-        println!("PDA: {:?}", pda);
-        println!("----------------------------------------------------------------");
-        println!("{}", build_params);
+        print_build_params(&pda, &build_params);
     }
+    Ok(())
+}
+
+pub async fn print_program_pda(
+    program_id: Pubkey,
+    signer: Option<String>,
+    client: &RpcClient,
+) -> anyhow::Result<()> {
+    let (pda, build_params) = get_program_pda(&client, &program_id, signer).await?;
+    print_build_params(&pda, &build_params);
     Ok(())
 }
