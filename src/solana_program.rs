@@ -1,6 +1,10 @@
 use anyhow::anyhow;
 use solana_cli_config::Config;
-use solana_client::rpc_client::RpcClient;
+use solana_client::{
+    rpc_client::RpcClient,
+    rpc_config::RpcProgramAccountsConfig,
+    rpc_filter::{Memcmp, RpcFilterType},
+};
 use std::{
     io::{self, Read, Write},
     str::FromStr,
@@ -12,10 +16,37 @@ use solana_sdk::{
     system_program, transaction::Transaction,
 };
 
+use solana_account_decoder::UiAccountEncoding;
+use solana_sdk::commitment_config::{CommitmentConfig, CommitmentLevel};
+
 use crate::api::get_last_deployed_slot;
 
 const OTTER_VERIFY_PROGRAMID: &str = "verifycLy8mB96wd9wqq3WDXQwM4oU6r42Th37Db9fC";
 const OTTER_SIGNER: &str = "9VWiUUhgNoRwTH5NVehYJEDwcotwYX3VgW4MChiHPAqU";
+
+#[derive(BorshDeserialize, BorshSerialize, Debug)]
+pub struct OtterBuildParams {
+    pub address: Pubkey,
+    pub signer: Pubkey,
+    pub version: String,
+    pub git_url: String,
+    pub commit: String,
+    pub args: Vec<String>,
+    pub deployed_slot: u64,
+    bump: u8,
+}
+impl std::fmt::Display for OtterBuildParams {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        writeln!(f, "Program Id: {}", self.address)?;
+        writeln!(f, "Signer: {}", self.signer)?;
+        writeln!(f, "Git Url: {}", self.git_url)?;
+        writeln!(f, "Commit: {}", self.commit)?;
+        writeln!(f, "Deployed Slot: {}", self.deployed_slot)?;
+        writeln!(f, "Args: {:?}", self.args)?;
+        writeln!(f, "Version: {}", self.version)?;
+        Ok(())
+    }
+}
 
 pub fn prompt_user_input(message: &str) -> bool {
     let mut buffer = [0; 1];
@@ -60,19 +91,18 @@ fn create_ix_data(params: &InputParams, ix: &OtterVerifyInstructions) -> Vec<u8>
     data
 }
 
+fn get_keypair_from_path(path: &str) -> anyhow::Result<Keypair> {
+    solana_clap_utils::keypair::keypair_from_path(&Default::default(), &path, "keypair", false)
+        .map_err(|err| anyhow!("Unable to get signer from path: {}", err))
+}
+
 fn get_user_config() -> anyhow::Result<(Keypair, RpcClient)> {
     let config_file = solana_cli_config::CONFIG_FILE
         .as_ref()
         .ok_or_else(|| anyhow!("Unable to get config file path"))?;
     let cli_config: Config = Config::load(config_file)?;
 
-    let signer = solana_clap_utils::keypair::keypair_from_path(
-        &Default::default(),
-        &cli_config.keypair_path,
-        "keypair",
-        false,
-    )
-    .map_err(|err| anyhow!("Unable to get signer from path: {}", err))?;
+    let signer = get_keypair_from_path(&cli_config.keypair_path)?;
 
     let rpc_client = RpcClient::new(cli_config.json_rpc_url.clone());
     Ok((signer, rpc_client))
@@ -84,9 +114,14 @@ fn process_otter_verify_ixs(
     program_address: Pubkey,
     instruction: OtterVerifyInstructions,
     rpc_client: RpcClient,
+    path_to_keypair: Option<String>,
 ) -> anyhow::Result<()> {
     let user_config = get_user_config()?;
-    let signer = user_config.0;
+    let signer = if let Some(path_to_keypair) = path_to_keypair {
+        get_keypair_from_path(&path_to_keypair)?
+    } else {
+        user_config.0
+    };
     let signer_pubkey = signer.pubkey();
     let connection = rpc_client;
 
@@ -135,15 +170,23 @@ pub async fn upload_program(
     program_address: Pubkey,
     connection_url: Option<String>,
     skip_prompt: bool,
+    path_to_keypair: Option<String>,
 ) -> anyhow::Result<()> {
-    if skip_prompt || prompt_user_input(
-        "Do you want to upload the program verification to the Solana Blockchain? (y/n) ",
-    ) {
+    if skip_prompt
+        || prompt_user_input(
+            "Do you want to upload the program verification to the Solana Blockchain? (y/n) ",
+        )
+    {
         println!("Uploading the program verification params to the Solana blockchain...");
 
         let cli_config = get_user_config()?;
 
-        let signer_pubkey = cli_config.0.pubkey();
+        let signer_pubkey: Pubkey = if let Some(ref path_to_keypair) = path_to_keypair {
+            get_keypair_from_path(&path_to_keypair)?.pubkey()
+        } else {
+            cli_config.0.pubkey()
+        };
+
         let connection = match connection_url.as_deref() {
             Some("m") => RpcClient::new("https://api.mainnet-beta.solana.com"),
             Some("d") => RpcClient::new("https://api.devnet.solana.com"),
@@ -194,9 +237,10 @@ pub async fn upload_program(
                 program_address,
                 OtterVerifyInstructions::Update,
                 connection,
+                path_to_keypair,
             )?;
         } else if connection.get_account(&pda_account_2).is_ok() {
-            let wanna_create_new_pda = prompt_user_input(
+            let wanna_create_new_pda = skip_prompt || prompt_user_input(
                 "Program already uploaded by another signer. Do you want to upload a new program? (Y/n)"
             );
             if wanna_create_new_pda {
@@ -206,6 +250,7 @@ pub async fn upload_program(
                     program_address,
                     OtterVerifyInstructions::Initialize,
                     connection,
+                    path_to_keypair,
                 )?;
             }
             return Ok(());
@@ -217,6 +262,7 @@ pub async fn upload_program(
                 program_address,
                 OtterVerifyInstructions::Initialize,
                 connection,
+                path_to_keypair,
             )?;
         }
     } else {
@@ -260,12 +306,54 @@ pub async fn process_close(program_address: Pubkey) -> anyhow::Result<()> {
             program_address,
             OtterVerifyInstructions::Close,
             connection,
+            None,
         )?;
     } else {
         return Err(anyhow!(
-            "Program account does not exist. Please provide the program address not PDA address."
+            "No PDA found for signer {:?} and program address {:?}. Make sure you are providing the program address, not the PDA address. Check that a signer exists for the program by running `solana-verify list-program-pdas --program-id {:?}`",
+            signer_pubkey,
+            program_address,
+            program_address
         ));
     }
 
     Ok(())
+}
+
+pub async fn get_all_pdas_available(
+    client: &RpcClient,
+    program_id_pubkey: &Pubkey,
+) -> anyhow::Result<Vec<(Pubkey, OtterBuildParams)>> {
+    let filter = vec![RpcFilterType::Memcmp(Memcmp::new_base58_encoded(
+        8,
+        &program_id_pubkey.to_bytes(),
+    ))];
+
+    let config = RpcProgramAccountsConfig {
+        filters: Some(filter),
+        account_config: solana_client::rpc_config::RpcAccountInfoConfig {
+            encoding: Some(UiAccountEncoding::Base64),
+            data_slice: None,
+            commitment: Some(CommitmentConfig {
+                commitment: CommitmentLevel::Confirmed,
+            }),
+            min_context_slot: None,
+        },
+        with_context: None,
+    };
+
+    let accounts = client.get_program_accounts_with_config(
+        &Pubkey::from_str(OTTER_VERIFY_PROGRAMID).unwrap(),
+        config,
+    )?;
+
+    let mut pdas = vec![];
+    for account in accounts {
+        let otter_build_params = OtterBuildParams::try_from_slice(&account.1.data[8..]);
+        if let Ok(otter_build_params) = otter_build_params {
+            pdas.push((account.0, otter_build_params));
+        }
+    }
+
+    Ok(pdas)
 }

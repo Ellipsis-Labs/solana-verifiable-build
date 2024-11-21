@@ -8,6 +8,7 @@ use signal_hook::{
 };
 use solana_cli_config::{Config, CONFIG_FILE};
 use solana_client::rpc_client::RpcClient;
+use solana_program::get_all_pdas_available;
 use solana_sdk::{
     bpf_loader_upgradeable::{self, UpgradeableLoaderState},
     pubkey::Pubkey,
@@ -178,6 +179,11 @@ async fn main() -> anyhow::Result<()> {
                 .short("y")
                 .long("skip-prompt")
                 .help("Skip the prompt to upload a new program"))
+            .arg(Arg::with_name("keypair")
+                .short("k")
+                .long("keypair")
+                .takes_value(true)
+                .help("Optionally specify a keypair to use for uploading the program verification args"))
             .arg(Arg::with_name("cargo-args")
                 .multiple(true)
                 .last(true)
@@ -189,6 +195,13 @@ async fn main() -> anyhow::Result<()> {
                 .required(true)
                 .takes_value(true)
                 .help("The address of the program to close the PDA")))
+        .subcommand(SubCommand::with_name("list-program-pdas")
+            .about("List all the PDA information associated with a program ID")
+            .arg(Arg::with_name("program-id")
+                .long("program-id")
+                .required(true)
+                .takes_value(true)
+                .help("Program ID of the program to list PDAs for")))
         .get_matches();
 
     let res = match matches.subcommand() {
@@ -261,12 +274,14 @@ async fn main() -> anyhow::Result<()> {
             let bpf_flag = sub_m.is_present("bpf");
             let current_dir = sub_m.is_present("current-dir");
             let skip_prompt = sub_m.is_present("skip-prompt");
+            let path_to_keypair = sub_m.value_of("keypair").map(|s| s.to_string());
             let cargo_args: Vec<String> = sub_m
                 .values_of("cargo-args")
                 .unwrap_or_default()
                 .map(|s| s.to_string())
                 .collect();
 
+            println!("  Skipping prompt: {}", skip_prompt);
             verify_from_repo(
                 remote,
                 mount_path,
@@ -280,6 +295,7 @@ async fn main() -> anyhow::Result<()> {
                 cargo_args,
                 current_dir,
                 skip_prompt,
+                path_to_keypair,
                 &mut container_id,
                 &mut temp_dir,
             )
@@ -288,6 +304,11 @@ async fn main() -> anyhow::Result<()> {
         ("close", Some(sub_m)) => {
             let program_id = sub_m.value_of("program-id").unwrap();
             process_close(Pubkey::try_from(program_id)?).await
+        }
+        ("list-program-pdas", Some(sub_m)) => {
+            let program_id = sub_m.value_of("program-id").unwrap();
+            let url = matches.value_of("url").map(|s| s.to_string());
+            list_program_pdas(Pubkey::try_from(program_id)?, url).await
         }
         // Handle other subcommands in a similar manner, for now let's panic
         _ => panic!(
@@ -730,6 +751,7 @@ pub async fn verify_from_repo(
     cargo_args: Vec<String>,
     current_dir: bool,
     skip_prompt: bool,
+    path_to_keypair: Option<String>,
     container_id_opt: &mut Option<String>,
     temp_dir_opt: &mut Option<String>,
 ) -> anyhow::Result<()> {
@@ -760,7 +782,7 @@ pub async fn verify_from_repo(
         // Get the absolute build path to the solana program directory to build inside docker
         let mount_path = PathBuf::from(relative_mount_path.clone());
         println!("Build path: {:?}", mount_path);
-    
+
         args.push("--library-name");
         let library_name = match library_name_opt {
             Some(p) => p,
@@ -805,16 +827,16 @@ pub async fn verify_from_repo(
         };
         args.push(&library_name);
         println!("Verifying program: {}", library_name);
-    
+
         if let Some(base_image) = &base_image {
             args.push("--base-image");
             args.push(base_image);
         }
-    
+
         if bpf_flag {
             args.push("--bpf");
         }
-    
+
         if !cargo_args.clone().is_empty() {
             args.push("--");
             for arg in &cargo_args {
@@ -829,6 +851,7 @@ pub async fn verify_from_repo(
             program_id,
             connection_url,
             skip_prompt,
+            path_to_keypair,
         )
         .await;
         if x.is_err() {
@@ -989,6 +1012,7 @@ pub async fn verify_from_repo(
                 program_id,
                 connection_url,
                 skip_prompt,
+                path_to_keypair,
             )
             .await;
             if x.is_err() {
@@ -1096,4 +1120,16 @@ pub fn get_pkg_name_from_cargo_toml(cargo_toml_file: &str) -> Option<String> {
     let manifest = Manifest::from_path(cargo_toml_file).ok()?;
     let pkg = manifest.package?;
     Some(pkg.name)
+}
+
+pub async fn list_program_pdas(program_id: Pubkey, url: Option<String>) -> anyhow::Result<()> {
+    let client = get_client(url);
+    let pdas = get_all_pdas_available(&client, &program_id).await?;
+    for (pda, build_params) in pdas {
+        println!("----------------------------------------------------------------");
+        println!("PDA: {:?}", pda);
+        println!("----------------------------------------------------------------");
+        println!("{}", build_params);
+    }
+    Ok(())
 }
