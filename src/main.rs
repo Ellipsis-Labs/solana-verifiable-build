@@ -987,7 +987,7 @@ pub async fn verify_from_repo(
                 args.iter().map(|&s| s.into()).collect(),
                 program_id,
                 connection_url,
-                false,
+                skip_prompt,
             )
             .await;
             if x.is_err() {
