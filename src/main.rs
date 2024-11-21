@@ -8,6 +8,7 @@ use signal_hook::{
 };
 use solana_cli_config::{Config, CONFIG_FILE};
 use solana_client::rpc_client::RpcClient;
+use solana_program::get_all_pdas_available;
 use solana_sdk::{
     bpf_loader_upgradeable::{self, UpgradeableLoaderState},
     pubkey::Pubkey,
@@ -180,6 +181,7 @@ async fn main() -> anyhow::Result<()> {
             .arg(Arg::with_name("keypair")
                 .short("k")
                 .long("keypair")
+                .takes_value(true)
                 .help("Optionally specify a keypair to use for uploading the program verification args"))
             .arg(Arg::with_name("cargo-args")
                 .multiple(true)
@@ -192,6 +194,11 @@ async fn main() -> anyhow::Result<()> {
                 .required(true)
                 .takes_value(true)
                 .help("The address of the program to close the PDA")))
+        .subcommand(SubCommand::with_name("list-program-pdas")
+            .about("List all the PDA information associated with a program ID")
+            .arg(Arg::with_name("program-id")
+                .required(true)
+                .help("Program ID of the program to list PDAs for")))
         .get_matches();
 
     let res = match matches.subcommand() {
@@ -271,6 +278,7 @@ async fn main() -> anyhow::Result<()> {
                 .map(|s| s.to_string())
                 .collect();
 
+            println!("  Skipping prompt: {}", skip_prompt);
             verify_from_repo(
                 remote,
                 mount_path,
@@ -293,6 +301,11 @@ async fn main() -> anyhow::Result<()> {
         ("close", Some(sub_m)) => {
             let program_id = sub_m.value_of("program-id").unwrap();
             process_close(Pubkey::try_from(program_id)?).await
+        }
+        ("list-program-pdas", Some(sub_m)) => {
+            let program_id = sub_m.value_of("program-id").unwrap();
+            let url = matches.value_of("url").map(|s| s.to_string());
+            list_program_pdas(Pubkey::try_from(program_id)?, url).await
         }
         // Handle other subcommands in a similar manner, for now let's panic
         _ => panic!(
@@ -1104,4 +1117,17 @@ pub fn get_pkg_name_from_cargo_toml(cargo_toml_file: &str) -> Option<String> {
     let manifest = Manifest::from_path(cargo_toml_file).ok()?;
     let pkg = manifest.package?;
     Some(pkg.name)
+}
+
+pub async fn list_program_pdas(program_id: Pubkey, url: Option<String>) -> anyhow::Result<()> {
+    let client = get_client(url);
+    let pdas = get_all_pdas_available(&client, &program_id).await?;
+    for (pda, build_params) in pdas {
+        println!("----------------------------------------------------------------");
+        println!("PDA: {:?}", pda);
+        println!("----------------------------------------------------------------");
+        println!("{}", build_params);
+    }
+    // println!("PDAs for program {}: {:?}", program_id, pdas);
+    Ok(())
 }
