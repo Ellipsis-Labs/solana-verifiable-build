@@ -21,6 +21,8 @@ use std::{
         atomic::{AtomicBool, Ordering},
         Arc,
     },
+    thread::sleep,
+    time::Duration,
 };
 use uuid::Uuid;
 pub mod api;
@@ -38,6 +40,8 @@ use crate::{
 };
 
 const MAINNET_GENESIS_HASH: &str = "5eykt4UsFv8P8NJdTREpY1vzqKqZKvdpKuc147dw2N9d";
+const MAX_RETRIES: u32 = 5;
+const INITIAL_RETRY_DELAY_MS: u64 = 500;
 
 pub fn get_network(network_str: &str) -> &str {
     match network_str {
@@ -379,12 +383,38 @@ pub fn get_file_hash(filepath: &str) -> Result<String, std::io::Error> {
     Ok(get_binary_hash(buffer))
 }
 
+fn retry_rpc_call<F, T>(mut rpc_call: F) -> anyhow::Result<T>
+where
+    F: FnMut() -> anyhow::Result<T>,
+{
+    let mut attempts = 0;
+    let mut delay = INITIAL_RETRY_DELAY_MS;
+
+    loop {
+        match rpc_call() {
+            Ok(result) => return Ok(result),
+            Err(err) if attempts < MAX_RETRIES => {
+                attempts += 1;
+                println!(
+                    "RPC call failed (attempt {}/{}) - retrying in {} ms... Error: {}",
+                    attempts, MAX_RETRIES, delay, err
+                );
+                sleep(Duration::from_millis(delay));
+                delay *= 2; // Exponential backoff
+            }
+            Err(err) => return Err(err),
+        }
+    }
+}
+
 pub fn get_buffer_hash(url: Option<String>, buffer_address: Pubkey) -> anyhow::Result<String> {
     let client = get_client(url);
     let offset = UpgradeableLoaderState::size_of_buffer_metadata();
-    let account_data = client.get_account_data(&buffer_address)?[offset..].to_vec();
-    let program_hash = get_binary_hash(account_data);
-    Ok(program_hash)
+    retry_rpc_call(|| {
+        let account_data = client.get_account_data(&buffer_address)?[offset..].to_vec();
+        let program_hash = get_binary_hash(account_data);
+        Ok(program_hash)
+    })
 }
 
 pub fn get_program_hash(url: Option<String>, program_id: Pubkey) -> anyhow::Result<String> {
@@ -392,15 +422,19 @@ pub fn get_program_hash(url: Option<String>, program_id: Pubkey) -> anyhow::Resu
     let program_buffer =
         Pubkey::find_program_address(&[program_id.as_ref()], &bpf_loader_upgradeable::id()).0;
     let offset = UpgradeableLoaderState::size_of_programdata_metadata();
-    let account_data = client.get_account_data(&program_buffer)?[offset..].to_vec();
-    let program_hash = get_binary_hash(account_data);
-    Ok(program_hash)
+    retry_rpc_call(|| {
+        let account_data = client.get_account_data(&program_buffer)?[offset..].to_vec();
+        let program_hash = get_binary_hash(account_data);
+        Ok(program_hash)
+    })
 }
 
 pub fn get_genesis_hash(url: Option<String>) -> anyhow::Result<String> {
     let client = get_client(url);
-    let genesis_hash = client.get_genesis_hash()?;
-    Ok(genesis_hash.to_string())
+    retry_rpc_call(|| {
+        let genesis_hash = client.get_genesis_hash()?;
+        Ok(genesis_hash.to_string())
+    })
 }
 
 pub fn get_docker_resource_limits() -> Option<(String, String)> {
