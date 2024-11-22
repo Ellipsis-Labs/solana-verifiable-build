@@ -16,7 +16,7 @@ use solana_sdk::{
 use std::{
     io::Read,
     path::PathBuf,
-    process::{exit, Stdio},
+    process::{exit, Command, Stdio},
     sync::{
         atomic::{AtomicBool, Ordering},
         Arc,
@@ -154,7 +154,7 @@ async fn main() -> anyhow::Result<()> {
             .arg(Arg::with_name("commit-hash")
                 .long("commit-hash")
                 .takes_value(true)
-                .help("Optional commit hash to checkout"))
+                .help("Commit hash to checkout. Required to know the correct program snapshot. Will fallback to HEAD if not provided"))
             .arg(Arg::with_name("program-id")
                 .long("program-id")
                 .required(true)
@@ -279,7 +279,6 @@ async fn main() -> anyhow::Result<()> {
             let remote = sub_m.is_present("remote");
             let mount_path = sub_m.value_of("mount-path").map(|s| s.to_string()).unwrap();
             let repo_url = sub_m.value_of("repo-url").map(|s| s.to_string()).unwrap();
-            let commit_hash = sub_m.value_of("commit-hash").map(|s| s.to_string());
             let program_id = sub_m.value_of("program-id").unwrap();
             let base_image = sub_m.value_of("base-image").map(|s| s.to_string());
             let library_name = sub_m.value_of("library-name").map(|s| s.to_string());
@@ -293,13 +292,27 @@ async fn main() -> anyhow::Result<()> {
                 .map(|s| s.to_string())
                 .collect();
 
-            println!("  Skipping prompt: {}", skip_prompt);
+            let commit_hash = sub_m
+                .value_of("commit-hash")
+                .map(String::from)
+                .or_else(|| {
+                    get_commit_hash_from_remote(&repo_url).ok() // Dynamically determine commit hash from remote
+                })
+                .ok_or_else(|| {
+                    anyhow::anyhow!(
+                        "Commit hash must be provided or inferred from the remote repository"
+                    )
+                })?;
+
+            println!("Commit hash from remote: {}", commit_hash);
+
+            println!("Skipping prompt: {}", skip_prompt);
             verify_from_repo(
                 remote,
                 mount_path,
                 &connection,
                 repo_url,
-                commit_hash,
+                Some(commit_hash),
                 Pubkey::try_from(program_id)?,
                 base_image,
                 library_name,
@@ -373,6 +386,70 @@ pub fn get_client(url: Option<String>) -> RpcClient {
     };
     let url = &get_network(&url.unwrap_or(config.json_rpc_url)).to_string();
     RpcClient::new(url)
+}
+
+fn get_commit_hash_from_remote(repo_url: &str) -> anyhow::Result<String> {
+    // Fetch the symbolic reference of the default branch
+    let output = Command::new("git")
+        .arg("ls-remote")
+        .arg("--symref")
+        .arg(repo_url)
+        .output()
+        .map_err(|e| anyhow::anyhow!("Failed to run git ls-remote: {}", e))?;
+
+    if !output.status.success() {
+        return Err(anyhow::anyhow!(
+            "Failed to fetch default branch information: {}",
+            String::from_utf8_lossy(&output.stderr)
+        ));
+    }
+
+    // Find out if the branch is called master or main
+    let output_str = String::from_utf8(output.stdout)?;
+    let default_branch = output_str
+        .lines()
+        .find_map(|line| {
+            if line.starts_with("ref: refs/heads/") {
+                Some(
+                    line.trim_start_matches("ref: refs/heads/")
+                        .split_whitespace()
+                        .next()?
+                        .to_string(),
+                )
+            } else {
+                None
+            }
+        })
+        .ok_or_else(|| {
+            anyhow::anyhow!(
+                "Unable to determine default branch from remote repository '{}'",
+                repo_url
+            )
+        })?;
+
+    println!("Default branch detected: {}", default_branch);
+
+    // Fetch the latest commit hash for the default branch
+    let hash_output = Command::new("git")
+        .arg("ls-remote")
+        .arg(repo_url)
+        .arg(&default_branch)
+        .output()
+        .map_err(|e| anyhow::anyhow!("Failed to fetch commit hash for default branch: {}", e))?;
+
+    if !hash_output.status.success() {
+        return Err(anyhow::anyhow!(
+            "Failed to fetch commit hash: {}",
+            String::from_utf8_lossy(&hash_output.stderr)
+        ));
+    }
+
+    // Parse and return the commit hash
+    String::from_utf8(hash_output.stdout)?
+        .split_whitespace()
+        .next()
+        .map(|s| s.to_string())
+        .ok_or_else(|| anyhow::anyhow!("Failed to parse commit hash from git ls-remote output"))
 }
 
 pub fn get_binary_hash(program_data: Vec<u8>) -> String {
