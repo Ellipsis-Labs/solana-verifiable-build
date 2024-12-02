@@ -8,7 +8,8 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use crate::api::models::{
-    ErrorResponse, JobResponse, JobStatus, JobVerificationResponse, VerifyResponse,
+    ErrorResponse, JobResponse, JobStatus, JobVerificationResponse, RemoteStatusResponseWrapper,
+    VerifyResponse,
 };
 
 // URL for the remote server
@@ -227,4 +228,23 @@ async fn check_job_status(client: &Client, request_id: &str) -> anyhow::Result<J
             response.text().await?
         ))?
     }
+}
+
+pub async fn get_remote_status(program_id: Pubkey) -> anyhow::Result<()> {
+    let client = Client::builder()
+        .timeout(Duration::from_secs(18000))
+        .build()?;
+
+    let response = client
+        .get(format!(
+            "{}/status-all/{}",
+            REMOTE_SERVER_URL,
+            program_id.to_string()
+        ))
+        .send()
+        .await?;
+
+    let status: RemoteStatusResponseWrapper = response.json().await?;
+    println!("{}", status);
+    Ok(())
 }
