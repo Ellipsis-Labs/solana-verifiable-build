@@ -248,3 +248,13 @@ pub async fn get_remote_status(program_id: Pubkey) -> anyhow::Result<()> {
     println!("{}", status);
     Ok(())
 }
+
+pub async fn get_remote_job(job_id: &str) -> anyhow::Result<()> {
+    let client = Client::builder()
+        .timeout(Duration::from_secs(18000))
+        .build()?;
+
+    let job = check_job_status(&client, job_id).await?;
+    println!("{}", job);
+    Ok(())
+}

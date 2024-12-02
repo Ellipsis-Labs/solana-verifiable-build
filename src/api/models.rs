@@ -34,6 +34,17 @@ pub struct JobResponse {
     pub respose: Option<JobVerificationResponse>,
 }
 
+impl std::fmt::Display for JobResponse {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if let Some(response) = &self.respose {
+            writeln!(f, "{}", response)?;
+        } else {
+            writeln!(f, "Status: {:?}", self.status)?;
+        }
+        Ok(())
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 pub enum JobStatus {
     #[serde(rename = "in_progress")]
@@ -53,6 +64,16 @@ pub struct JobVerificationResponse {
     pub on_chain_hash: String,
     pub executable_hash: String,
     pub repo_url: String,
+}
+
+impl std::fmt::Display for JobVerificationResponse {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        writeln!(f, "Status: {:?}", self.status)?;
+        writeln!(f, "Message: {}", self.message)?;
+        writeln!(f, "On-chain Hash: {}", self.on_chain_hash)?;
+        writeln!(f, "Executable Hash: {}", self.executable_hash)?;
+        write!(f, "Repository URL: {}", self.repo_url)
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize)]
