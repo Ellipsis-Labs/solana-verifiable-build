@@ -1,5 +1,5 @@
 use anyhow::anyhow;
-use api::{get_remote_job, get_remote_status};
+use api::{get_remote_job, get_remote_status, send_job_with_uploader_to_remote};
 use cargo_lock::Lockfile;
 use cargo_toml::Manifest;
 use clap::{App, AppSettings, Arg, SubCommand};
@@ -233,6 +233,17 @@ async fn main() -> anyhow::Result<()> {
                     .long("job-id")
                     .required(true)
                     .takes_value(true)))
+            .subcommand(SubCommand::with_name("submit-job")
+                .about("Submit a verification job with with on-chain information")
+                .arg(Arg::with_name("program-id")
+                    .long("program-id")
+                    .required(true)
+                    .takes_value(true))
+                .arg(Arg::with_name("uploader")
+                    .long("uploader")
+                    .required(true)
+                    .takes_value(true)
+                    .help("This is the address that uploaded verified build information for the program-id")))
         )
         .get_matches();
 
@@ -365,6 +376,17 @@ async fn main() -> anyhow::Result<()> {
             ("get-job", Some(sub_m)) => {
                 let job_id = sub_m.value_of("job-id").unwrap();
                 get_remote_job(job_id).await
+            }
+            ("submit-job", Some(sub_m)) => {
+                let program_id = sub_m.value_of("program-id").unwrap();
+                let uploader = sub_m.value_of("uploader").unwrap();
+
+                send_job_with_uploader_to_remote(
+                    &connection,
+                    &Pubkey::try_from(program_id)?,
+                    &Pubkey::try_from(uploader)?,
+                )
+                .await
             }
             _ => unreachable!(),
         },
