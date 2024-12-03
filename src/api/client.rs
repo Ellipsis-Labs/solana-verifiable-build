@@ -13,6 +13,7 @@ use crate::api::models::{
     VerifyResponse,
 };
 use crate::solana_program::get_program_pda;
+use crate::{get_genesis_hash, MAINNET_GENESIS_HASH};
 
 // URL for the remote server
 pub const REMOTE_SERVER_URL: &str = "https://verify.osec.io";
@@ -120,6 +121,10 @@ pub async fn send_job_with_uploader_to_remote(
     uploader: &Pubkey,
 ) -> anyhow::Result<()> {
     // Check that PDA exists before sending job
+    let genesis_hash = get_genesis_hash(connection)?;
+    if genesis_hash != MAINNET_GENESIS_HASH {
+        return Err(anyhow!("Remote verification only works with mainnet. Please omit the --remote flag to verify locally."));
+    }
     get_program_pda(connection, program_id, Some(uploader.to_string())).await?;
 
     let client = Client::builder()

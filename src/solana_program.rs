@@ -342,7 +342,7 @@ pub async fn get_program_pda(
         ))
     } else {
         Err(anyhow!(
-            "PDA not found for {:?} and uploader {:?}",
+            "PDA not found for {:?} and uploader {:?}. Make sure you've uploaded the PDA to mainnet.",
             program_id,
             signer_pubkey
         ))

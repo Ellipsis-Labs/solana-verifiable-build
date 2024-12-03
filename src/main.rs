@@ -219,6 +219,7 @@ async fn main() -> anyhow::Result<()> {
         )
         .subcommand(SubCommand::with_name("remote")
             .about("Send a command to a remote machine")
+        .setting(AppSettings::SubcommandRequiredElseHelp)
             .subcommand(SubCommand::with_name("get-status")
                 .about("Get the verification status of a program")
                 .arg(Arg::with_name("program-id")
