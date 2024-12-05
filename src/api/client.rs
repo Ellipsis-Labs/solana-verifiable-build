@@ -1,15 +1,19 @@
 use anyhow::anyhow;
 use crossbeam_channel::{unbounded, Receiver};
 use indicatif::{HumanDuration, ProgressBar, ProgressStyle};
-use reqwest::Client;
+use reqwest::{Client, Response};
 use serde_json::json;
+use solana_client::rpc_client::RpcClient;
 use solana_sdk::pubkey::Pubkey;
 use std::thread;
 use std::time::{Duration, Instant};
 
 use crate::api::models::{
-    ErrorResponse, JobResponse, JobStatus, JobVerificationResponse, VerifyResponse,
+    ErrorResponse, JobResponse, JobStatus, JobVerificationResponse, RemoteStatusResponseWrapper,
+    VerifyResponse,
 };
+use crate::solana_program::get_program_pda;
+use crate::{get_genesis_hash, MAINNET_GENESIS_HASH};
 
 // URL for the remote server
 pub const REMOTE_SERVER_URL: &str = "https://verify.osec.io";
@@ -108,10 +112,56 @@ pub async fn send_job_to_remote(
         .send()
         .await?;
 
+    handle_submission_response(&client, response, program_id).await
+}
+
+pub async fn send_job_with_uploader_to_remote(
+    connection: &RpcClient,
+    program_id: &Pubkey,
+    uploader: &Pubkey,
+) -> anyhow::Result<()> {
+    // Check that PDA exists before sending job
+    let genesis_hash = get_genesis_hash(connection)?;
+    if genesis_hash != MAINNET_GENESIS_HASH {
+        return Err(anyhow!("Remote verification only works with mainnet. Please omit the --remote flag to verify locally."));
+    }
+    get_program_pda(connection, program_id, Some(uploader.to_string())).await?;
+
+    let client = Client::builder()
+        .timeout(Duration::from_secs(18000))
+        .build()?;
+
+    // Send the POST request
+    let response = client
+        .post(format!("{}/verify-with-signer", REMOTE_SERVER_URL))
+        .json(&json!({
+            "program_id": program_id.to_string(),
+            "signer": uploader.to_string(),
+            "repository": "",
+            "commit_hash": "",
+        }))
+        .send()
+        .await?;
+
+    handle_submission_response(&client, response, program_id).await
+}
+
+pub async fn handle_submission_response(
+    client: &Client,
+    response: Response,
+    program_id: &Pubkey,
+) -> anyhow::Result<()> {
     if response.status().is_success() {
-        let status_response: VerifyResponse = response.json().await?;
+        // First get the raw text to preserve it in case of parsing failure
+        let response_text = response.text().await?;
+        let status_response =
+            serde_json::from_str::<VerifyResponse>(&response_text).map_err(|e| {
+                eprintln!("Failed to parse response as VerifyResponse: {}", e);
+                eprintln!("Raw response: {}", response_text);
+                anyhow!("Failed to parse server response")
+            })?;
         let request_id = status_response.request_id;
-        println!("Verification request sent. ✅");
+        println!("Verification request sent with request id: {}", request_id);
         println!("Verification in progress... ⏳");
         // Span new thread for polling the server for status
         // Create a channel for communication between threads
@@ -227,4 +277,33 @@ async fn check_job_status(client: &Client, request_id: &str) -> anyhow::Result<J
             response.text().await?
         ))?
     }
+}
+
+pub async fn get_remote_status(program_id: Pubkey) -> anyhow::Result<()> {
+    let client = Client::builder()
+        .timeout(Duration::from_secs(18000))
+        .build()?;
+
+    let response = client
+        .get(format!(
+            "{}/status-all/{}",
+            REMOTE_SERVER_URL,
+            program_id.to_string()
+        ))
+        .send()
+        .await?;
+
+    let status: RemoteStatusResponseWrapper = response.json().await?;
+    println!("{}", status);
+    Ok(())
+}
+
+pub async fn get_remote_job(job_id: &str) -> anyhow::Result<()> {
+    let client = Client::builder()
+        .timeout(Duration::from_secs(18000))
+        .build()?;
+
+    let job = check_job_status(&client, job_id).await?;
+    println!("{}", job);
+    Ok(())
 }

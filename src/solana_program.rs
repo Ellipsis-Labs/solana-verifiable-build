@@ -341,7 +341,11 @@ pub async fn get_program_pda(
                 .map_err(|err| anyhow!("Unable to parse build params: {}", err))?,
         ))
     } else {
-        Err(anyhow!("PDA not found"))
+        Err(anyhow!(
+            "PDA not found for {:?} and uploader {:?}. Make sure you've uploaded the PDA to mainnet.",
+            program_id,
+            signer_pubkey
+        ))
     }
 }
 

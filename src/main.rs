@@ -1,4 +1,5 @@
 use anyhow::anyhow;
+use api::{get_remote_job, get_remote_status, send_job_with_uploader_to_remote};
 use cargo_lock::Lockfile;
 use cargo_toml::Manifest;
 use clap::{App, AppSettings, Arg, SubCommand};
@@ -216,6 +217,35 @@ async fn main() -> anyhow::Result<()> {
                 .help("Signer to get the PDA for")
             )
         )
+        .subcommand(SubCommand::with_name("remote")
+            .about("Send a command to a remote machine")
+        .setting(AppSettings::SubcommandRequiredElseHelp)
+            .subcommand(SubCommand::with_name("get-status")
+                .about("Get the verification status of a program")
+                .arg(Arg::with_name("program-id")
+                    .long("program-id")
+                    .required(true)
+                    .takes_value(true)
+                    .help("The program address to fetch verification status for")))
+
+            .subcommand(SubCommand::with_name("get-job")
+                .about("Get the status of a verification job")
+                .arg(Arg::with_name("job-id")
+                    .long("job-id")
+                    .required(true)
+                    .takes_value(true)))
+            .subcommand(SubCommand::with_name("submit-job")
+                .about("Submit a verification job with with on-chain information")
+                .arg(Arg::with_name("program-id")
+                    .long("program-id")
+                    .required(true)
+                    .takes_value(true))
+                .arg(Arg::with_name("uploader")
+                    .long("uploader")
+                    .required(true)
+                    .takes_value(true)
+                    .help("This is the address that uploaded verified build information for the program-id")))
+        )
         .get_matches();
 
     let connection = resolve_rpc_url(matches.value_of("url").map(|s| s.to_string()))?;
@@ -339,6 +369,28 @@ async fn main() -> anyhow::Result<()> {
             let signer = sub_m.value_of("signer").map(|s| s.to_string());
             print_program_pda(Pubkey::try_from(program_id)?, signer, &connection).await
         }
+        ("remote", Some(sub_m)) => match sub_m.subcommand() {
+            ("get-status", Some(sub_m)) => {
+                let program_id = sub_m.value_of("program-id").unwrap();
+                get_remote_status(Pubkey::try_from(program_id)?).await
+            }
+            ("get-job", Some(sub_m)) => {
+                let job_id = sub_m.value_of("job-id").unwrap();
+                get_remote_job(job_id).await
+            }
+            ("submit-job", Some(sub_m)) => {
+                let program_id = sub_m.value_of("program-id").unwrap();
+                let uploader = sub_m.value_of("uploader").unwrap();
+
+                send_job_with_uploader_to_remote(
+                    &connection,
+                    &Pubkey::try_from(program_id)?,
+                    &Pubkey::try_from(uploader)?,
+                )
+                .await
+            }
+            _ => unreachable!(),
+        },
         // Handle other subcommands in a similar manner, for now let's panic
         _ => panic!(
             "Unknown subcommand: {:?}\nUse '--help' to see available commands",
