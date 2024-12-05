@@ -50,6 +50,8 @@ While verified builds enhance transparency, they should not be considered a comp
 - Use trusted build environments
 - Consider using governance solutions for program upgrades
 
-## Contributing
-Contributions are welcome! Please feel free to submit a Pull Request.
+For responsible disclosure of bugs related to verified builds CLI, please email maintainers@ellipsislabs.xyz with a detailed description of the attack vector.
 
+## Contributing
+
+Contributions are welcome! Please feel free to submit a Pull Request.
