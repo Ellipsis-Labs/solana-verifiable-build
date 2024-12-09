@@ -228,7 +228,11 @@ async fn main() -> anyhow::Result<()> {
             .arg(Arg::with_name("cargo-args")
                 .multiple(true)
                 .last(true)
-                .help("Arguments to pass to the underlying `cargo build-bpf` command")))
+                .help("Arguments to pass to the underlying `cargo build-bpf` command"))
+            .arg(Arg::with_name("skip-build")
+                .long("skip-build")
+                .help("Skip building and verification, only upload the PDA")
+                .takes_value(false)))
         .subcommand(SubCommand::with_name("close")
             .about("Close the otter-verify PDA account associated with the given program ID")
             .arg(Arg::with_name("program-id")
@@ -346,6 +350,7 @@ async fn main() -> anyhow::Result<()> {
             Ok(())
         }
         ("verify-from-repo", Some(sub_m)) => {
+            let skip_build = sub_m.is_present("skip-build");
             let remote = sub_m.is_present("remote");
             let mount_path = sub_m.value_of("mount-path").map(|s| s.to_string()).unwrap();
             let repo_url = sub_m.value_of("repo-url").map(|s| s.to_string()).unwrap();
@@ -397,6 +402,7 @@ async fn main() -> anyhow::Result<()> {
                 skip_prompt,
                 path_to_keypair,
                 compute_unit_price,
+                skip_build,
                 &mut container_id,
                 &mut temp_dir,
                 &check_signal,
@@ -945,6 +951,7 @@ pub async fn verify_from_repo(
     skip_prompt: bool,
     path_to_keypair: Option<String>,
     compute_unit_price: u64,
+    skip_build: bool,
     container_id_opt: &mut Option<String>,
     temp_dir_opt: &mut Option<String>,
     check_signal: &dyn Fn(&mut Option<String>, &mut Option<String>),
@@ -1183,51 +1190,60 @@ pub async fn verify_from_repo(
         }
     }
 
-    let result = build_and_verify_repo(
-        mount_path.to_str().unwrap().to_string(),
-        base_image.clone(),
-        bpf_flag,
-        library_name.clone(),
-        connection,
-        program_id,
-        cargo_args.clone(),
-        container_id_opt,
-    );
+    // When skip_build is true, we skip the build and verify step but still do the upload
+    let result = if !skip_build {
+        build_and_verify_repo(
+            mount_path.to_str().unwrap().to_string(),
+            base_image.clone(),
+            bpf_flag,
+            library_name.clone(),
+            connection,
+            program_id,
+            cargo_args.clone(),
+            container_id_opt,
+        )
+    } else {
+        Ok(("skipped".to_string(), "skipped".to_string()))
+    };
 
     // Cleanup no matter the result
     std::process::Command::new("rm")
         .args(["-rf", &verify_dir])
         .output()?;
 
-    // Compare hashes or return error
-    if let Ok((build_hash, program_hash)) = result {
-        println!("Executable Program Hash from repo: {}", build_hash);
-        println!("On-chain Program Hash: {}", program_hash);
-
-        if build_hash == program_hash {
-            println!("Program hash matches ✅");
-            let x = upload_program(
-                repo_url,
-                &commit_hash.clone(),
-                args.iter().map(|&s| s.into()).collect(),
-                program_id,
-                connection,
-                skip_prompt,
-                path_to_keypair,
-                compute_unit_price,
-            )
-            .await;
-            if x.is_err() {
-                println!("Error uploading program: {:?}", x);
-                exit(1);
+    // Handle the result
+    match result {
+        Ok((build_hash, program_hash)) => {
+            if !skip_build {
+                println!("Executable Program Hash from repo: {}", build_hash);
+                println!("On-chain Program Hash: {}", program_hash);
             }
-        } else {
-            println!("Program hashes do not match ❌");
-        }
 
-        Ok(())
-    } else {
-        Err(anyhow!("Error verifying program. {:?}", result))
+            if skip_build || build_hash == program_hash {
+                if skip_build {
+                    println!("Skipping build and uploading program");
+                } else {
+                    println!("Program hash matches ✅");
+                }
+                upload_program(
+                    repo_url,
+                    &commit_hash.clone(),
+                    args.iter().map(|&s| s.into()).collect(),
+                    program_id,
+                    connection,
+                    skip_prompt,
+                    path_to_keypair,
+                    compute_unit_price,
+                )
+                .await
+            } else {
+                println!("Program hashes do not match ❌");
+                println!("Executable Program Hash from repo: {}", build_hash);
+                println!("On-chain Program Hash: {}", program_hash);
+                Ok(())
+            }
+        }
+        Err(e) => Err(anyhow!("Error verifying program: {:?}", e)),
     }
 }
 
