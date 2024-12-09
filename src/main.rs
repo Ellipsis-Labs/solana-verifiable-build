@@ -78,6 +78,12 @@ async fn main() -> anyhow::Result<()> {
             .global(true)
             .takes_value(true)
             .help("Optionally include your RPC endpoint. Defaults to Solana CLI config file"))
+        .arg(Arg::with_name("compute-unit-price")
+            .long("compute-unit-price")
+            .global(true)
+            .takes_value(true)
+            .default_value("100000")
+            .help("Priority fee in micro-lamports per compute unit"))
         .subcommand(SubCommand::with_name("build")
             .about("Deterministically build the program in a Docker container")
             .arg(Arg::with_name("mount-directory")
@@ -316,6 +322,11 @@ async fn main() -> anyhow::Result<()> {
             let current_dir = sub_m.is_present("current-dir");
             let skip_prompt = sub_m.is_present("skip-prompt");
             let path_to_keypair = sub_m.value_of("keypair").map(|s| s.to_string());
+            let compute_unit_price = matches
+                .value_of("compute-unit-price")
+                .unwrap()
+                .parse::<u64>()
+                .unwrap_or(100000);
             let cargo_args: Vec<String> = sub_m
                 .values_of("cargo-args")
                 .unwrap_or_default()
@@ -351,6 +362,7 @@ async fn main() -> anyhow::Result<()> {
                 current_dir,
                 skip_prompt,
                 path_to_keypair,
+                compute_unit_price,
                 &mut container_id,
                 &mut temp_dir,
             )
@@ -358,7 +370,17 @@ async fn main() -> anyhow::Result<()> {
         }
         ("close", Some(sub_m)) => {
             let program_id = sub_m.value_of("program-id").unwrap();
-            process_close(Pubkey::try_from(program_id)?, &connection).await
+            let compute_unit_price = matches
+                .value_of("compute-unit-price")
+                .unwrap()
+                .parse::<u64>()
+                .unwrap_or(100000);
+            process_close(
+                Pubkey::try_from(program_id)?,
+                &connection,
+                compute_unit_price,
+            )
+            .await
         }
         ("list-program-pdas", Some(sub_m)) => {
             let program_id = sub_m.value_of("program-id").unwrap();
@@ -533,12 +555,30 @@ pub fn get_buffer_hash(url: Option<String>, buffer_address: Pubkey) -> anyhow::R
 }
 
 pub fn get_program_hash(client: &RpcClient, program_id: Pubkey) -> anyhow::Result<String> {
+    // First check if the program account exists
+    if client.get_account(&program_id).is_err() {
+        return Err(anyhow!("Program {} is not deployed", program_id));
+    }
+
     let program_buffer =
         Pubkey::find_program_address(&[program_id.as_ref()], &bpf_loader_upgradeable::id()).0;
-    let offset = UpgradeableLoaderState::size_of_programdata_metadata();
-    let account_data = client.get_account_data(&program_buffer)?[offset..].to_vec();
-    let program_hash = get_binary_hash(account_data);
-    Ok(program_hash)
+
+    // Then check if the program data account exists
+    match client.get_account_data(&program_buffer) {
+        Ok(data) => {
+            let offset = UpgradeableLoaderState::size_of_programdata_metadata();
+            let account_data = data[offset..].to_vec();
+            let program_hash = get_binary_hash(account_data);
+            Ok(program_hash)
+        }
+        Err(_) => Err(anyhow!(
+            "Could not find program data for {}. This could mean:\n\
+             1. The program is not deployed\n\
+             2. The program is not upgradeable\n\
+             3. The program was deployed with a different loader",
+            program_id
+        )),
+    }
 }
 
 pub fn get_genesis_hash(client: &RpcClient) -> anyhow::Result<String> {
@@ -895,6 +935,7 @@ pub async fn verify_from_repo(
     current_dir: bool,
     skip_prompt: bool,
     path_to_keypair: Option<String>,
+    compute_unit_price: u64,
     container_id_opt: &mut Option<String>,
     temp_dir_opt: &mut Option<String>,
 ) -> anyhow::Result<()> {
@@ -995,6 +1036,7 @@ pub async fn verify_from_repo(
             connection,
             skip_prompt,
             path_to_keypair,
+            compute_unit_price,
         )
         .await;
         if x.is_err() {
@@ -1156,6 +1198,7 @@ pub async fn verify_from_repo(
                 connection,
                 skip_prompt,
                 path_to_keypair,
+                compute_unit_price,
             )
             .await;
             if x.is_err() {
