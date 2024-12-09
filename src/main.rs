@@ -49,23 +49,57 @@ pub fn get_network(network_str: &str) -> &str {
     }
 }
 
+// At the top level, make the signal handler accessible throughout the program
+lazy_static::lazy_static! {
+    static ref SIGNAL_RECEIVED: Arc<AtomicBool> = Arc::new(AtomicBool::new(false));
+}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     // Handle SIGTERM and SIGINT gracefully by stopping the docker container
     let mut signals = Signals::new([SIGTERM, SIGINT])?;
     let mut container_id: Option<String> = None;
     let mut temp_dir: Option<String> = None;
-    let caught_signal = Arc::new(AtomicBool::new(false));
 
-    let caught_signal_clone = caught_signal.clone();
     let handle = signals.handle();
     std::thread::spawn(move || {
-        #[allow(clippy::never_loop)]
-        for _ in signals.forever() {
-            caught_signal_clone.store(true, Ordering::Relaxed);
-            break;
+        if signals.forever().next().is_some() {
+            SIGNAL_RECEIVED.store(true, Ordering::Relaxed);
         }
     });
+
+    // Add a function to check if we should abort
+    let check_signal = |container_id: &mut Option<String>, temp_dir: &mut Option<String>| {
+        if SIGNAL_RECEIVED.load(Ordering::Relaxed) {
+            println!("\nReceived interrupt signal, cleaning up...");
+
+            if let Some(container_id) = container_id.take() {
+                if std::process::Command::new("docker")
+                    .args(["kill", &container_id])
+                    .output()
+                    .is_err()
+                {
+                    println!("Failed to close docker container");
+                } else {
+                    println!("Stopped container {}", container_id)
+                }
+            }
+
+            if let Some(temp_dir) = temp_dir.take() {
+                if std::process::Command::new("rm")
+                    .args(["-rf", &temp_dir])
+                    .output()
+                    .is_err()
+                {
+                    println!("Failed to remove temporary directory");
+                } else {
+                    println!("Removed temporary directory {}", temp_dir);
+                }
+            }
+
+            std::process::exit(130);
+        }
+    };
 
     let matches = App::new("solana-verify")
         .author("Ellipsis Labs <maintainers@ellipsislabs.xyz>")
@@ -365,6 +399,7 @@ async fn main() -> anyhow::Result<()> {
                 compute_unit_price,
                 &mut container_id,
                 &mut temp_dir,
+                &check_signal,
             )
             .await
         }
@@ -420,32 +455,6 @@ async fn main() -> anyhow::Result<()> {
         ),
     };
 
-    if caught_signal.load(Ordering::Relaxed) || res.is_err() {
-        if let Some(container_id) = container_id.clone().take() {
-            println!("Stopping container {}", container_id);
-            if std::process::Command::new("docker")
-                .args(["kill", &container_id])
-                .output()
-                .is_err()
-            {
-                println!("Failed to close docker container");
-            } else {
-                println!("Stopped container {}", container_id)
-            }
-        }
-        if let Some(temp_dir) = temp_dir.clone().take() {
-            println!("Removing temporary directory {}", temp_dir);
-            if std::process::Command::new("rm")
-                .args(["-rf", &temp_dir])
-                .output()
-                .is_err()
-            {
-                println!("Failed to remove temporary directory");
-            } else {
-                println!("Removed temporary directory {}", temp_dir);
-            }
-        }
-    }
     handle.close();
     res
 }
@@ -938,8 +947,10 @@ pub async fn verify_from_repo(
     compute_unit_price: u64,
     container_id_opt: &mut Option<String>,
     temp_dir_opt: &mut Option<String>,
+    check_signal: &dyn Fn(&mut Option<String>, &mut Option<String>),
 ) -> anyhow::Result<()> {
     if remote {
+        check_signal(container_id_opt, temp_dir_opt);
         let genesis_hash = get_genesis_hash(connection)?;
         if genesis_hash != MAINNET_GENESIS_HASH {
             return Err(anyhow!("Remote verification only works with mainnet. Please omit the --remote flag to verify locally."));
@@ -1076,10 +1087,13 @@ pub async fn verify_from_repo(
     let verify_tmp_root_path = format!("{}/{}", verify_dir, base_name);
     println!("Cloning repo into: {}", verify_tmp_root_path);
 
+    check_signal(container_id_opt, temp_dir_opt);
     std::process::Command::new("git")
         .args(["clone", &repo_url, &verify_tmp_root_path])
         .stdout(Stdio::inherit())
         .output()?;
+
+    check_signal(container_id_opt, temp_dir_opt);
 
     // Checkout a specific commit hash, if provided
     if let Some(commit_hash) = commit_hash.as_ref() {
@@ -1097,6 +1111,8 @@ pub async fn verify_from_repo(
             Err(anyhow!("Encountered error in git setup: {:?}", result))?;
         }
     }
+
+    check_signal(container_id_opt, temp_dir_opt);
 
     if !relative_mount_path.is_empty() {
         args.push("--mount-path");
