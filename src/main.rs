@@ -17,7 +17,7 @@ use solana_sdk::{
 use std::{
     io::Read,
     path::PathBuf,
-    process::{exit, Command, Stdio},
+    process::{Command, Stdio},
     sync::{
         atomic::{AtomicBool, Ordering},
         Arc,
@@ -951,118 +951,14 @@ pub async fn verify_from_repo(
     skip_prompt: bool,
     path_to_keypair: Option<String>,
     compute_unit_price: u64,
-    skip_build: bool,
+    mut skip_build: bool,
     container_id_opt: &mut Option<String>,
     temp_dir_opt: &mut Option<String>,
     check_signal: &dyn Fn(&mut Option<String>, &mut Option<String>),
 ) -> anyhow::Result<()> {
-    if remote {
-        check_signal(container_id_opt, temp_dir_opt);
-        let genesis_hash = get_genesis_hash(connection)?;
-        if genesis_hash != MAINNET_GENESIS_HASH {
-            return Err(anyhow!("Remote verification only works with mainnet. Please omit the --remote flag to verify locally."));
-        }
+    // Set skip_build to true if remote is true
+    skip_build |= remote;
 
-        println!("Sending verify command to remote machine...");
-        send_job_to_remote(
-            &repo_url,
-            &commit_hash,
-            &program_id,
-            &library_name_opt,
-            bpf_flag,
-            relative_mount_path.clone(),
-            base_image.clone(),
-            cargo_args.clone(),
-        )
-        .await?;
-
-        let mut args: Vec<&str> = Vec::new();
-        if !relative_mount_path.is_empty() {
-            args.push("--mount-path");
-            args.push(&relative_mount_path);
-        }
-        // Get the absolute build path to the solana program directory to build inside docker
-        let mount_path = PathBuf::from(relative_mount_path.clone());
-        println!("Build path: {:?}", mount_path);
-
-        args.push("--library-name");
-        let library_name = match library_name_opt {
-            Some(p) => p,
-            None => {
-                    std::process::Command::new("find")
-                        .args([mount_path.to_str().unwrap(), "-name", "Cargo.toml"])
-                        .output()
-                        .map_err(|e| {
-                            anyhow::format_err!(
-                                "Failed to find Cargo.toml files in root directory: {}",
-                                e.to_string()
-                            )
-                        })
-                        .and_then(|output| {
-                            let mut options = vec![];
-                            for path in String::from_utf8(output.stdout)?.split("\n") {
-                                match get_lib_name_from_cargo_toml(path) {
-                                    Ok(name) => {
-                                        options.push(name);
-                                    }
-                                    Err(_) => {
-                                        continue;
-                                    }
-                                }
-                            }
-                            if options.len() != 1 {
-                                println!(
-                                    "Found multiple possible targets in root directory: {:?}",
-                                    options
-                                );
-                                println!(
-                                    "Please explicitly specify the target with the --package-name <name> option",
-                                );
-                                Err(anyhow::format_err!(
-                                    "Failed to find unique Cargo.toml file in root directory"
-                                ))
-                            } else {
-                                Ok(options[0].clone())
-                            }
-                        })?
-            }
-        };
-        args.push(&library_name);
-        println!("Verifying program: {}", library_name);
-
-        if let Some(base_image) = &base_image {
-            args.push("--base-image");
-            args.push(base_image);
-        }
-
-        if bpf_flag {
-            args.push("--bpf");
-        }
-
-        if !cargo_args.clone().is_empty() {
-            args.push("--");
-            for arg in &cargo_args {
-                args.push(arg);
-            }
-        }
-
-        let x = upload_program(
-            repo_url,
-            &commit_hash.clone(),
-            args.iter().map(|&s| s.into()).collect(),
-            program_id,
-            connection,
-            skip_prompt,
-            path_to_keypair,
-            compute_unit_price,
-        )
-        .await;
-        if x.is_err() {
-            println!("Error uploading program: {:?}", x);
-            exit(1);
-        }
-        return Ok(());
-    }
     // Create a Vec to store solana-verify args
     let mut args: Vec<&str> = Vec::new();
 
@@ -1130,45 +1026,45 @@ pub async fn verify_from_repo(
     println!("Build path: {:?}", mount_path);
 
     args.push("--library-name");
-    let library_name = match library_name_opt {
+    let library_name = match library_name_opt.clone() {
         Some(p) => p,
         None => {
-                std::process::Command::new("find")
-                    .args([mount_path.to_str().unwrap(), "-name", "Cargo.toml"])
-                    .output()
-                    .map_err(|e| {
-                        anyhow::format_err!(
-                            "Failed to find Cargo.toml files in root directory: {}",
-                            e.to_string()
-                        )
-                    })
-                    .and_then(|output| {
-                        let mut options = vec![];
-                        for path in String::from_utf8(output.stdout)?.split("\n") {
-                            match get_lib_name_from_cargo_toml(path) {
-                                Ok(name) => {
-                                    options.push(name);
-                                }
-                                Err(_) => {
-                                    continue;
-                                }
+            std::process::Command::new("find")
+                .args([mount_path.to_str().unwrap(), "-name", "Cargo.toml"])
+                .output()
+                .map_err(|e| {
+                    anyhow::format_err!(
+                        "Failed to find Cargo.toml files in root directory: {}",
+                        e.to_string()
+                    )
+                })
+                .and_then(|output| {
+                    let mut options = vec![];
+                    for path in String::from_utf8(output.stdout)?.split("\n") {
+                        match get_lib_name_from_cargo_toml(path) {
+                            Ok(name) => {
+                                options.push(name);
+                            }
+                            Err(_) => {
+                                continue;
                             }
                         }
-                        if options.len() != 1 {
-                            println!(
-                                "Found multiple possible targets in root directory: {:?}",
-                                options
-                            );
-                            println!(
-                                "Please explicitly specify the target with the --package-name <name> option",
-                            );
-                            Err(anyhow::format_err!(
-                                "Failed to find unique Cargo.toml file in root directory"
-                            ))
-                        } else {
-                            Ok(options[0].clone())
-                        }
-                    })?
+                    }
+                    if options.len() != 1 {
+                        println!(
+                            "Found multiple possible targets in root directory: {:?}",
+                            options
+                        );
+                        println!(
+                            "Please explicitly specify the target with the --library-name <name> option",
+                        );
+                        Err(anyhow::format_err!(
+                            "Failed to find unique Cargo.toml file in root directory"
+                        ))
+                    } else {
+                        Ok(options[0].clone())
+                    }
+                })?
         }
     };
     args.push(&library_name);
@@ -1190,8 +1086,7 @@ pub async fn verify_from_repo(
         }
     }
 
-    // When skip_build is true, we skip the build and verify step but still do the upload
-    let result = if !skip_build {
+    let result: Result<(String, String), anyhow::Error> = if !skip_build {
         build_and_verify_repo(
             mount_path.to_str().unwrap().to_string(),
             base_image.clone(),
@@ -1207,9 +1102,11 @@ pub async fn verify_from_repo(
     };
 
     // Cleanup no matter the result
-    std::process::Command::new("rm")
-        .args(["-rf", &verify_dir])
-        .output()?;
+    if !skip_build {
+        std::process::Command::new("rm")
+            .args(["-rf", &verify_dir])
+            .output()?;
+    }
 
     // Handle the result
     match result {
@@ -1221,12 +1118,13 @@ pub async fn verify_from_repo(
 
             if skip_build || build_hash == program_hash {
                 if skip_build {
-                    println!("Skipping build and uploading program");
+                    println!("Skipping local build and uploading program");
                 } else {
                     println!("Program hash matches ✅");
                 }
+
                 upload_program(
-                    repo_url,
+                    repo_url.clone(),
                     &commit_hash.clone(),
                     args.iter().map(|&s| s.into()).collect(),
                     program_id,
@@ -1235,7 +1133,30 @@ pub async fn verify_from_repo(
                     path_to_keypair,
                     compute_unit_price,
                 )
-                .await
+                .await?;
+
+                if remote {
+                    check_signal(container_id_opt, temp_dir_opt);
+                    let genesis_hash = get_genesis_hash(connection)?;
+                    if genesis_hash != MAINNET_GENESIS_HASH {
+                        return Err(anyhow!("Remote verification only works with mainnet. Please omit the --remote flag to verify locally."));
+                    }
+
+                    println!("Sending verify command to remote machine...");
+                    send_job_to_remote(
+                        &repo_url,
+                        &commit_hash,
+                        &program_id,
+                        &library_name_opt.clone(),
+                        bpf_flag,
+                        relative_mount_path.clone(),
+                        base_image.clone(),
+                        cargo_args.clone(),
+                    )
+                    .await?;
+                }
+
+                Ok(())
             } else {
                 println!("Program hashes do not match ❌");
                 println!("Executable Program Hash from repo: {}", build_hash);
