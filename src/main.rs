@@ -1488,12 +1488,26 @@ async fn export_pda_tx(
     let (pda, _) =
         find_build_params_pda(&Pubkey::try_from(program_id)?, &Pubkey::try_from(uploader)?);
 
+    // check if account already exists
+    let instruction = match connection.get_account(&pda) {
+        Ok(account_info) => {
+            if account_info.data.len() > 0 {
+                println!("PDA already exists, creating update transaction");
+                OtterVerifyInstructions::Update
+            } else {
+                println!("PDA does not exist, creating initialize transaction");
+                OtterVerifyInstructions::Initialize
+            }
+        }
+        Err(_) => OtterVerifyInstructions::Initialize,
+    };
+
     let tx = compose_transaction(
         &input_params,
         Pubkey::try_from(uploader)?,
         pda,
         Pubkey::try_from(program_id)?,
-        OtterVerifyInstructions::Initialize,
+        instruction,
         compute_unit_price,
     );
 
