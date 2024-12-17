@@ -1,19 +1,28 @@
 use anyhow::anyhow;
-use api::{get_remote_job, get_remote_status, send_job_with_uploader_to_remote};
+use api::{
+    get_last_deployed_slot, get_remote_job, get_remote_status, send_job_with_uploader_to_remote,
+};
+use base64::{prelude::BASE64_STANDARD, Engine};
+use bincode::serialize;
 use cargo_lock::Lockfile;
 use cargo_toml::Manifest;
-use clap::{App, AppSettings, Arg, SubCommand};
+use clap::{App, AppSettings, Arg, ArgMatches, SubCommand};
+use serde::Serialize;
 use signal_hook::{
     consts::{SIGINT, SIGTERM},
     iterator::Signals,
 };
 use solana_cli_config::{Config, CONFIG_FILE};
-use solana_client::rpc_client::RpcClient;
-use solana_program::{get_all_pdas_available, get_program_pda, resolve_rpc_url, OtterBuildParams};
+use solana_client::{rpc_client::RpcClient, rpc_config::EncodingConfig};
+use solana_program::{
+    compose_transaction, find_build_params_pda, get_all_pdas_available, get_program_pda,
+    resolve_rpc_url, InputParams, OtterBuildParams, OtterVerifyInstructions,
+};
 use solana_sdk::{
     bpf_loader_upgradeable::{self, UpgradeableLoaderState},
     pubkey::Pubkey,
 };
+use solana_transaction_status::UiTransactionEncoding;
 use std::{
     io::Read,
     path::PathBuf,
@@ -23,6 +32,7 @@ use std::{
         Arc,
     },
 };
+use tokio::join;
 use uuid::Uuid;
 pub mod api;
 #[rustfmt::skip]
@@ -233,6 +243,51 @@ async fn main() -> anyhow::Result<()> {
                 .long("skip-build")
                 .help("Skip building and verification, only upload the PDA")
                 .takes_value(false)))
+        .subcommand(SubCommand::with_name("export-pda-tx")
+            .about("Export the transaction as base58 for use with Squads")
+            .arg(Arg::with_name("uploader")
+                .long("uploader")
+                .takes_value(true)
+                .required(true)
+                .help("Specifies an address to use for uploading the program verification args (should be the program authority)"))
+            .arg(Arg::with_name("encoding")
+                .long("encoding")
+                .takes_value(true)
+                .default_value("base58")
+                .possible_values(&["base58", "base64"])
+                .help("The encoding to use for the transaction"))   
+            .arg(Arg::with_name("mount-path")
+                .long("mount-path")
+                .takes_value(true)
+                .default_value("")
+                .help("Relative path to the root directory or the source code repository from which to build the program"))
+            .arg(Arg::with_name("repo-url")
+                .required(true)
+                .help("The HTTPS URL of the repo to clone"))
+            .arg(Arg::with_name("commit-hash")
+                .long("commit-hash")
+                .takes_value(true)
+                .help("Commit hash to checkout. Required to know the correct program snapshot. Will fallback to HEAD if not provided"))
+            .arg(Arg::with_name("program-id")
+                .long("program-id")
+                .required(true)
+                .takes_value(true)
+                .help("The Program ID of the program to verify"))
+            .arg(Arg::with_name("base-image")
+                .short("b")
+                .long("base-image")
+                .takes_value(true)
+                .help("Optionally specify a custom base docker image to use for building"))
+            .arg(Arg::with_name("library-name")
+                .long("library-name")
+                .takes_value(true)
+                .help("Specify the name of the library to build and verify"))
+            .arg(Arg::with_name("bpf")
+                .long("bpf")
+                .help("If the program requires cargo build-bpf (instead of cargo build-sbf), set this flag"))
+            .arg(Arg::with_name("current-dir")
+                .long("current-dir")
+                .help("Verify in current directory")))
         .subcommand(SubCommand::with_name("close")
             .about("Close the otter-verify PDA account associated with the given program ID")
             .arg(Arg::with_name("program-id")
@@ -240,6 +295,10 @@ async fn main() -> anyhow::Result<()> {
                 .required(true)
                 .takes_value(true)
                 .help("The address of the program to close the PDA")))
+            .arg(Arg::with_name("export")
+                .long("export")
+                .required(false)
+                .help("Print the transaction as base58 for use with Squads"))
         .subcommand(SubCommand::with_name("list-program-pdas")
             .about("List all the PDA information associated with a program ID. Requires custom RPC endpoint")
             .arg(Arg::with_name("program-id")
@@ -372,19 +431,7 @@ async fn main() -> anyhow::Result<()> {
                 .map(|s| s.to_string())
                 .collect();
 
-            let commit_hash = sub_m
-                .value_of("commit-hash")
-                .map(String::from)
-                .or_else(|| {
-                    get_commit_hash_from_remote(&repo_url).ok() // Dynamically determine commit hash from remote
-                })
-                .ok_or_else(|| {
-                    anyhow::anyhow!(
-                        "Commit hash must be provided or inferred from the remote repository"
-                    )
-                })?;
-
-            println!("Commit hash from remote: {}", commit_hash);
+            let commit_hash = get_commit_hash(sub_m, &repo_url)?;
 
             println!("Skipping prompt: {}", skip_prompt);
             verify_from_repo(
@@ -422,6 +469,96 @@ async fn main() -> anyhow::Result<()> {
                 compute_unit_price,
             )
             .await
+        }
+        ("export-pda-tx", Some(sub_m)) => {
+            let uploader = sub_m.value_of("uploader").unwrap();
+            let mount_path = sub_m.value_of("mount-path").map(|s| s.to_string()).unwrap();
+            let repo_url = sub_m.value_of("repo-url").map(|s| s.to_string()).unwrap();
+            let program_id = sub_m.value_of("program-id").unwrap();
+            let base_image = sub_m.value_of("base-image").map(|s| s.to_string());
+            let library_name = sub_m.value_of("library-name").map(|s| s.to_string());
+            let bpf_flag = sub_m.is_present("bpf");
+            let encoding = sub_m.value_of("encoding").unwrap();
+
+            let encoding: UiTransactionEncoding = match encoding {
+                "base58" => UiTransactionEncoding::Base58,
+                "base64" => UiTransactionEncoding::Base64,
+                _ => {
+                    return Err(anyhow!("Unsupported encoding: {}", encoding));
+                }
+            };
+
+            let compute_unit_price = matches
+                .value_of("compute-unit-price")
+                .unwrap()
+                .parse::<u64>()
+                .unwrap_or(100000);
+
+            let commit_hash = get_commit_hash(sub_m, &repo_url)?;
+            let cargo_args: Vec<String> = sub_m
+                .values_of("cargo-args")
+                .unwrap_or_default()
+                .map(|s| s.to_string())
+                .collect();
+
+            let connection = resolve_rpc_url(matches.value_of("url").map(|s| s.to_string()))?;
+            println!("Using connection url: {}", connection.url());
+
+            let last_deployed_slot = get_last_deployed_slot(&connection, &program_id.to_string())
+                .await
+                .map_err(|err| anyhow!("Unable to get last deployed slot: {}", err))?;
+
+            let (temp_root_path, verify_dir) = clone_repo_and_checkout(
+                &repo_url,
+                true,
+                &get_basename(&repo_url)?,
+                Some(commit_hash.clone()),
+                &mut temp_dir,
+            )?;
+
+            let input_params = InputParams {
+                version: env!("CARGO_PKG_VERSION").to_string(),
+                git_url: repo_url,
+                commit: commit_hash.clone(),
+                args: build_args(
+                    &mount_path,
+                    library_name,
+                    &temp_root_path,
+                    base_image,
+                    bpf_flag,
+                    cargo_args,
+                )?
+                .0,
+                deployed_slot: last_deployed_slot,
+            };
+
+            std::process::Command::new("rm")
+                .args(["-rf", &verify_dir])
+                .output()?;
+
+            let (pda, _) =
+                find_build_params_pda(&Pubkey::try_from(program_id)?, &Pubkey::try_from(uploader)?);
+
+            let tx = compose_transaction(
+                &input_params,
+                Pubkey::try_from(uploader)?,
+                pda,
+                Pubkey::try_from(program_id)?,
+                OtterVerifyInstructions::Initialize,
+                compute_unit_price,
+            );
+
+            // serialize the transaction to base58
+            match encoding {
+                UiTransactionEncoding::Base58 => {
+                    println!("{}", bs58::encode(serialize(&tx)?).into_string());
+                }
+                UiTransactionEncoding::Base64 => {
+                    println!("{}", BASE64_STANDARD.encode(serialize(&tx)?));
+                }
+                _ => unreachable!(),
+            }
+            Ok(())
         }
         ("list-program-pdas", Some(sub_m)) => {
             let program_id = sub_m.value_of("program-id").unwrap();
@@ -935,97 +1072,23 @@ pub fn verify_from_image(
     Ok(())
 }
 
-#[allow(clippy::too_many_arguments)]
-pub async fn verify_from_repo(
-    remote: bool,
-    relative_mount_path: String,
-    connection: &RpcClient,
-    repo_url: String,
-    commit_hash: Option<String>,
-    program_id: Pubkey,
-    base_image: Option<String>,
+fn build_args(
+    relative_mount_path: &str,
     library_name_opt: Option<String>,
+    verify_tmp_root_path: &str,
+    base_image: Option<String>,
     bpf_flag: bool,
     cargo_args: Vec<String>,
-    current_dir: bool,
-    skip_prompt: bool,
-    path_to_keypair: Option<String>,
-    compute_unit_price: u64,
-    mut skip_build: bool,
-    container_id_opt: &mut Option<String>,
-    temp_dir_opt: &mut Option<String>,
-    check_signal: &dyn Fn(&mut Option<String>, &mut Option<String>),
-) -> anyhow::Result<()> {
-    // Set skip_build to true if remote is true
-    skip_build |= remote;
-
-    // Create a Vec to store solana-verify args
-    let mut args: Vec<&str> = Vec::new();
-
-    // Get source code from repo_url
-    let base_name = std::process::Command::new("basename")
-        .arg(&repo_url)
-        .output()
-        .map_err(|e| anyhow!("Failed to get basename of repo_url: {:?}", e))
-        .and_then(|output| parse_output(output.stdout))?;
-
-    let uuid = Uuid::new_v4().to_string();
-
-    // Create a temporary directory to clone the repo into
-    let verify_dir = if current_dir {
-        format!(
-            "{}/.{}",
-            std::env::current_dir()?
-                .as_os_str()
-                .to_str()
-                .ok_or_else(|| anyhow::Error::msg("Invalid path string"))?,
-            uuid.clone()
-        )
-    } else {
-        format!("/tmp/solana-verify/{}", uuid)
-    };
-
-    temp_dir_opt.replace(verify_dir.clone());
-
-    let verify_tmp_root_path = format!("{}/{}", verify_dir, base_name);
-    println!("Cloning repo into: {}", verify_tmp_root_path);
-
-    check_signal(container_id_opt, temp_dir_opt);
-    std::process::Command::new("git")
-        .args(["clone", &repo_url, &verify_tmp_root_path])
-        .stdout(Stdio::inherit())
-        .output()?;
-
-    check_signal(container_id_opt, temp_dir_opt);
-
-    // Checkout a specific commit hash, if provided
-    if let Some(commit_hash) = commit_hash.as_ref() {
-        let result = std::process::Command::new("git")
-            .args(["-C", &verify_tmp_root_path])
-            .args(["checkout", commit_hash])
-            .output()
-            .map_err(|e| anyhow!("Failed to checkout commit hash: {:?}", e));
-        if result.is_ok() {
-            println!("Checked out commit hash: {}", commit_hash);
-        } else {
-            std::process::Command::new("rm")
-                .args(["-rf", verify_dir.as_str()])
-                .output()?;
-            Err(anyhow!("Encountered error in git setup: {:?}", result))?;
-        }
-    }
-
-    check_signal(container_id_opt, temp_dir_opt);
-
+) -> anyhow::Result<(Vec<String>, String, String)> {
+    let mut args: Vec<String> = Vec::new();
     if !relative_mount_path.is_empty() {
-        args.push("--mount-path");
-        args.push(&relative_mount_path);
+        args.push("--mount-path".to_string());
+        args.push(relative_mount_path.to_string());
     }
     // Get the absolute build path to the solana program directory to build inside docker
     let mount_path = PathBuf::from(verify_tmp_root_path.clone()).join(&relative_mount_path);
-    println!("Build path: {:?}", mount_path);
 
-    args.push("--library-name");
+    args.push("--library-name".to_string());
     let library_name = match library_name_opt.clone() {
         Some(p) => p,
         None => {
@@ -1067,28 +1130,143 @@ pub async fn verify_from_repo(
                 })?
         }
     };
-    args.push(&library_name);
-    println!("Verifying program: {}", library_name);
+    args.push(library_name.clone());
 
     if let Some(base_image) = &base_image {
-        args.push("--base-image");
-        args.push(base_image);
+        args.push("--base-image".to_string());
+        args.push(base_image.clone());
     }
 
     if bpf_flag {
-        args.push("--bpf");
+        args.push("--bpf".to_string());
     }
 
     if !cargo_args.is_empty() {
-        args.push("--");
+        args.push("--".to_string());
         for arg in &cargo_args {
-            args.push(arg);
+            args.push(arg.clone());
         }
     }
 
+    Ok((args, mount_path.to_str().unwrap().to_string(), library_name))
+}
+
+fn clone_repo_and_checkout(
+    repo_url: &str,
+    current_dir: bool,
+    base_name: &str,
+    commit_hash: Option<String>,
+    temp_dir_opt: &mut Option<String>,
+) -> anyhow::Result<(String, String)> {
+    let uuid = Uuid::new_v4().to_string();
+
+    // Create a temporary directory to clone the repo into
+    let verify_dir = if current_dir {
+        format!(
+            "{}/.{}",
+            std::env::current_dir()?
+                .as_os_str()
+                .to_str()
+                .ok_or_else(|| anyhow::Error::msg("Invalid path string"))?,
+            uuid.clone()
+        )
+    } else {
+        format!("/tmp/solana-verify/{}", uuid)
+    };
+
+    temp_dir_opt.replace(verify_dir.clone());
+
+    let verify_tmp_root_path = format!("{}/{}", verify_dir, base_name);
+    println!("Cloning repo into: {}", verify_tmp_root_path);
+
+    std::process::Command::new("git")
+        .args(["clone", &repo_url, &verify_tmp_root_path])
+        .stdout(Stdio::inherit())
+        .output()?;
+
+    if let Some(commit_hash) = commit_hash.as_ref() {
+        let result = std::process::Command::new("git")
+            .args(["-C", &verify_tmp_root_path])
+            .args(["checkout", commit_hash])
+            .output()
+            .map_err(|e| anyhow!("Failed to checkout commit hash: {:?}", e));
+        if result.is_ok() {
+            println!("Checked out commit hash: {}", commit_hash);
+        } else {
+            std::process::Command::new("rm")
+                .args(["-rf", verify_dir.as_str()])
+                .output()?;
+            Err(anyhow!("Encountered error in git setup: {:?}", result))?;
+        }
+    }
+
+    Ok((verify_tmp_root_path, verify_dir))
+}
+
+fn get_basename(repo_url: &str) -> anyhow::Result<String> {
+    let base_name = std::process::Command::new("basename")
+        .arg(&repo_url)
+        .output()
+        .map_err(|e| anyhow!("Failed to get basename of repo_url: {:?}", e))
+        .and_then(|output| parse_output(output.stdout))?;
+    Ok(base_name)
+}
+
+#[allow(clippy::too_many_arguments)]
+pub async fn verify_from_repo(
+    remote: bool,
+    relative_mount_path: String,
+    connection: &RpcClient,
+    repo_url: String,
+    commit_hash: Option<String>,
+    program_id: Pubkey,
+    base_image: Option<String>,
+    library_name_opt: Option<String>,
+    bpf_flag: bool,
+    cargo_args: Vec<String>,
+    current_dir: bool,
+    skip_prompt: bool,
+    path_to_keypair: Option<String>,
+    compute_unit_price: u64,
+    mut skip_build: bool,
+    container_id_opt: &mut Option<String>,
+    temp_dir_opt: &mut Option<String>,
+    check_signal: &dyn Fn(&mut Option<String>, &mut Option<String>),
+) -> anyhow::Result<()> {
+    // Set skip_build to true if remote is true
+    skip_build |= remote;
+
+    // Get source code from repo_url
+    let base_name = get_basename(&repo_url)?;
+
+    check_signal(container_id_opt, temp_dir_opt);
+
+    let (verify_tmp_root_path, verify_dir) = clone_repo_and_checkout(
+        &repo_url,
+        current_dir,
+        &base_name,
+        commit_hash.clone(),
+        temp_dir_opt,
+    )?;
+
+    check_signal(container_id_opt, temp_dir_opt);
+
+    let (args, mount_path, library_name) = build_args(
+        &relative_mount_path,
+        library_name_opt.clone(),
+        &verify_tmp_root_path,
+        base_image.clone(),
+        bpf_flag,
+        cargo_args.clone(),
+    )?;
+    println!("Build path: {:?}", mount_path);
+    println!("Verifying program: {}", library_name);
+
+    check_signal(container_id_opt, temp_dir_opt);
+
     let result: Result<(String, String), anyhow::Error> = if !skip_build {
         build_and_verify_repo(
-            mount_path.to_str().unwrap().to_string(),
+            mount_path,
             base_image.clone(),
             bpf_flag,
             library_name.clone(),
@@ -1102,11 +1280,9 @@ pub async fn verify_from_repo(
     };
 
     // Cleanup no matter the result
-    if !skip_build {
-        std::process::Command::new("rm")
-            .args(["-rf", &verify_dir])
-            .output()?;
-    }
+    std::process::Command::new("rm")
+        .args(["-rf", &verify_dir])
+        .output()?;
 
     // Handle the result
     match result {
@@ -1126,7 +1302,7 @@ pub async fn verify_from_repo(
                 upload_program(
                     repo_url.clone(),
                     &commit_hash.clone(),
-                    args.iter().map(|&s| s.into()).collect(),
+                    args.iter().map(|s| s.to_string()).collect(),
                     program_id,
                     connection,
                     skip_prompt,
@@ -1284,4 +1460,19 @@ pub async fn print_program_pda(
     let (pda, build_params) = get_program_pda(&client, &program_id, signer).await?;
     print_build_params(&pda, &build_params);
     Ok(())
+}
+
+pub fn get_commit_hash(sub_m: &ArgMatches, repo_url: &str) -> anyhow::Result<String> {
+    let commit_hash = sub_m
+        .value_of("commit-hash")
+        .map(String::from)
+        .or_else(|| {
+            get_commit_hash_from_remote(&repo_url).ok() // Dynamically determine commit hash from remote
+        })
+        .ok_or_else(|| {
+            anyhow::anyhow!("Commit hash must be provided or inferred from the remote repository")
+        })?;
+
+    println!("Commit hash from remote: {}", commit_hash);
+    Ok(commit_hash)
 }

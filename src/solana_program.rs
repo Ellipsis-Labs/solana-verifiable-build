@@ -12,7 +12,8 @@ use std::{
 
 use borsh::{to_vec, BorshDeserialize, BorshSerialize};
 use solana_sdk::{
-    compute_budget::ComputeBudgetInstruction, instruction::AccountMeta, message::Message, pubkey::Pubkey, signature::Keypair, signer::Signer, system_program, transaction::Transaction
+    compute_budget::ComputeBudgetInstruction, instruction::AccountMeta, message::Message,
+    pubkey::Pubkey, signature::Keypair, signer::Signer, system_program, transaction::Transaction,
 };
 
 use solana_account_decoder::UiAccountEncoding;
@@ -108,24 +109,14 @@ fn get_user_config() -> anyhow::Result<(Keypair, RpcClient)> {
     Ok((signer, rpc_client))
 }
 
-fn process_otter_verify_ixs(
+pub fn compose_transaction(
     params: &InputParams,
+    signer_pubkey: Pubkey,
     pda_account: Pubkey,
     program_address: Pubkey,
     instruction: OtterVerifyInstructions,
-    rpc_client: &RpcClient,
-    path_to_keypair: Option<String>,
     compute_unit_price: u64,
-) -> anyhow::Result<()> {
-    let user_config = get_user_config()?;
-    let signer = if let Some(path_to_keypair) = path_to_keypair {
-        get_keypair_from_path(&path_to_keypair)?
-    } else {
-        user_config.0
-    };
-    let signer_pubkey = signer.pubkey();
-    let connection = rpc_client;
-
+) -> Transaction {
     let ix_data = if instruction != OtterVerifyInstructions::Close {
         create_ix_data(params, &instruction)
     } else {
@@ -150,13 +141,41 @@ fn process_otter_verify_ixs(
 
     let message = if compute_unit_price > 0 {
         // Add compute budget instruction for priority fees only if price > 0
-        let compute_budget_ix = ComputeBudgetInstruction::set_compute_unit_price(compute_unit_price);
+        let compute_budget_ix =
+            ComputeBudgetInstruction::set_compute_unit_price(compute_unit_price);
         Message::new(&[compute_budget_ix, ix], Some(&signer_pubkey))
     } else {
         Message::new(&[ix], Some(&signer_pubkey))
     };
 
-    let mut tx = Transaction::new_unsigned(message);
+    Transaction::new_unsigned(message)
+}
+
+fn process_otter_verify_ixs(
+    params: &InputParams,
+    pda_account: Pubkey,
+    program_address: Pubkey,
+    instruction: OtterVerifyInstructions,
+    rpc_client: &RpcClient,
+    path_to_keypair: Option<String>,
+    compute_unit_price: u64,
+) -> anyhow::Result<()> {
+    let user_config = get_user_config()?;
+    let signer = if let Some(path_to_keypair) = path_to_keypair {
+        get_keypair_from_path(&path_to_keypair)?
+    } else {
+        user_config.0
+    };
+    let connection = rpc_client;
+
+    let mut tx = compose_transaction(
+        params,
+        signer.pubkey(),
+        pda_account,
+        program_address,
+        instruction,
+        compute_unit_price,
+    );
 
     tx.sign(&[&signer], connection.get_latest_blockhash()?);
 
@@ -282,7 +301,7 @@ pub async fn upload_program(
     Ok(())
 }
 
-fn find_build_params_pda(program_id: &Pubkey, signer: &Pubkey) -> (Pubkey, u8) {
+pub fn find_build_params_pda(program_id: &Pubkey, signer: &Pubkey) -> (Pubkey, u8) {
     let seeds: &[&[u8]; 3] = &[b"otter_verify", &signer.to_bytes(), &program_id.to_bytes()];
     Pubkey::find_program_address(seeds, &OTTER_VERIFY_PROGRAM_ID)
 }
