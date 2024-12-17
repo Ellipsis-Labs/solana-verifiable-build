@@ -504,61 +504,22 @@ async fn main() -> anyhow::Result<()> {
             let connection = resolve_rpc_url(matches.value_of("url").map(|s| s.to_string()))?;
             println!("Using connection url: {}", connection.url());
 
-            let last_deployed_slot = get_last_deployed_slot(&connection, &program_id.to_string())
-                .await
-                .map_err(|err| anyhow!("Unable to get last deployed slot: {}", err))?;
-
-            let (temp_root_path, verify_dir) = clone_repo_and_checkout(
-                &repo_url,
-                true,
-                &get_basename(&repo_url)?,
-                Some(commit_hash.clone()),
-                &mut temp_dir,
-            )?;
-
-            let input_params = InputParams {
-                version: env!("CARGO_PKG_VERSION").to_string(),
-                git_url: repo_url,
-                commit: commit_hash.clone(),
-                args: build_args(
-                    &mount_path,
-                    library_name,
-                    &temp_root_path,
-                    base_image,
-                    bpf_flag,
-                    cargo_args,
-                )?
-                .0,
-                deployed_slot: last_deployed_slot,
-            };
-
-            std::process::Command::new("rm")
-                .args(["-rf", &verify_dir])
-                .output()?;
-
-            let (pda, _) =
-                find_build_params_pda(&Pubkey::try_from(program_id)?, &Pubkey::try_from(uploader)?);
-
-            let tx = compose_transaction(
-                &input_params,
-                Pubkey::try_from(uploader)?,
-                pda,
+            export_pda_tx(
+                &connection,
                 Pubkey::try_from(program_id)?,
-                OtterVerifyInstructions::Initialize,
+                Pubkey::try_from(uploader)?,
+                repo_url,
+                commit_hash,
+                mount_path,
+                library_name,
+                base_image,
+                bpf_flag,
+                &mut temp_dir,
+                encoding,
+                cargo_args,
                 compute_unit_price,
-            );
-
-            // serialize the transaction to base58
-            match encoding {
-                UiTransactionEncoding::Base58 => {
-                    println!("{}", bs58::encode(serialize(&tx)?).into_string());
-                }
-                UiTransactionEncoding::Base64 => {
-                    println!("{}", BASE64_STANDARD.encode(serialize(&tx)?));
-                }
-                _ => unreachable!(),
-            }
-            Ok(())
+            )
+            .await
         }
         ("list-program-pdas", Some(sub_m)) => {
             let program_id = sub_m.value_of("program-id").unwrap();
@@ -1475,4 +1436,77 @@ pub fn get_commit_hash(sub_m: &ArgMatches, repo_url: &str) -> anyhow::Result<Str
 
     println!("Commit hash from remote: {}", commit_hash);
     Ok(commit_hash)
+}
+
+async fn export_pda_tx(
+    connection: &RpcClient,
+    program_id: Pubkey,
+    uploader: Pubkey,
+    repo_url: String,
+    commit_hash: String,
+    mount_path: String,
+    library_name: Option<String>,
+    base_image: Option<String>,
+    bpf_flag: bool,
+    temp_dir: &mut Option<String>,
+    encoding: UiTransactionEncoding,
+    cargo_args: Vec<String>,
+    compute_unit_price: u64,
+) -> anyhow::Result<()> {
+    let last_deployed_slot = get_last_deployed_slot(&connection, &program_id.to_string())
+        .await
+        .map_err(|err| anyhow!("Unable to get last deployed slot: {}", err))?;
+
+    let (temp_root_path, verify_dir) = clone_repo_and_checkout(
+        &repo_url,
+        true,
+        &get_basename(&repo_url)?,
+        Some(commit_hash.clone()),
+        temp_dir,
+    )?;
+
+    let input_params = InputParams {
+        version: env!("CARGO_PKG_VERSION").to_string(),
+        git_url: repo_url,
+        commit: commit_hash.clone(),
+        args: build_args(
+            &mount_path,
+            library_name.clone(),
+            &temp_root_path,
+            base_image.clone(),
+            bpf_flag.clone(),
+            cargo_args,
+        )?
+        .0,
+        deployed_slot: last_deployed_slot,
+    };
+
+    std::process::Command::new("rm")
+        .args(["-rf", &verify_dir])
+        .output()?;
+
+    let (pda, _) =
+        find_build_params_pda(&Pubkey::try_from(program_id)?, &Pubkey::try_from(uploader)?);
+
+    let tx = compose_transaction(
+        &input_params,
+        Pubkey::try_from(uploader)?,
+        pda,
+        Pubkey::try_from(program_id)?,
+        OtterVerifyInstructions::Initialize,
+        compute_unit_price,
+    );
+
+    // serialize the transaction to base58
+    match encoding {
+        UiTransactionEncoding::Base58 => {
+            println!("{}", bs58::encode(serialize(&tx)?).into_string());
+        }
+        UiTransactionEncoding::Base64 => {
+            println!("{}", BASE64_STANDARD.encode(serialize(&tx)?));
+        }
+        _ => unreachable!(),
+    }
+
+    Ok(())
 }
