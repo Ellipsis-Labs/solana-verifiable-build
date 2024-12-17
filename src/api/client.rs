@@ -97,7 +97,7 @@ pub async fn send_job_to_remote(
     program_id: &Pubkey,
     library_name: &Option<String>,
     bpf_flag: bool,
-    mount_path: String,
+    relative_mount_path: String,
     base_image: Option<String>,
     cargo_args: Vec<String>,
 ) -> anyhow::Result<()> {
@@ -114,10 +114,10 @@ pub async fn send_job_to_remote(
             "program_id": program_id.to_string(),
             "lib_name": library_name,
             "bpf_flag": bpf_flag,
-            "mount_path":  if mount_path.is_empty() {
+            "mount_path":  if relative_mount_path.is_empty() {
                 None
             } else {
-                Some(mount_path)
+                Some(relative_mount_path)
             },
             "base_image": base_image,
             "cargo_args": cargo_args,
@@ -165,6 +165,7 @@ pub async fn handle_submission_response(
     program_id: &Pubkey,
 ) -> anyhow::Result<()> {
     if response.status().is_success() {
+        // First get the raw text to preserve it in case of parsing failure
         let response_text = response.text().await?;
         let status_response =
             serde_json::from_str::<VerifyResponse>(&response_text).map_err(|e| {
@@ -176,6 +177,8 @@ pub async fn handle_submission_response(
         println!("Verification request sent with request id: {}", request_id);
         println!("Verification in progress... ⏳");
 
+        // Span new thread for polling the server for status
+        // Create a channel for communication between threads
         let (sender, receiver) = unbounded();
         let handle = thread::spawn(move || loading_animation(receiver));
 
@@ -183,8 +186,8 @@ pub async fn handle_submission_response(
             // Check for interrupt signal before polling
             if SIGNAL_RECEIVED.load(Ordering::Relaxed) {
                 let _ = sender.send(false);
-                let _ = handle.join(); // Use let _ to ignore potential panic results
-                std::process::exit(130); // Exit with standard Ctrl+C exit code
+                handle.join().unwrap();
+                break; // Exit the loop and continue with normal error handling
             }
 
             let status = check_job_status(&client, &request_id).await?;
@@ -192,14 +195,14 @@ pub async fn handle_submission_response(
                 JobStatus::InProgress => {
                     if SIGNAL_RECEIVED.load(Ordering::Relaxed) {
                         let _ = sender.send(false);
-                        let _ = handle.join();
-                        std::process::exit(130);
+                        handle.join().unwrap();
+                        break;
                     }
                     thread::sleep(Duration::from_secs(10));
                 }
                 JobStatus::Completed => {
                     let _ = sender.send(true);
-                    let _ = handle.join();
+                    handle.join().unwrap();
                     let status_response = status.respose.unwrap();
 
                     if status_response.executable_hash == status_response.on_chain_hash {
@@ -219,7 +222,7 @@ pub async fn handle_submission_response(
                 }
                 JobStatus::Failed => {
                     let _ = sender.send(false);
-                    let _ = handle.join();
+                    handle.join().unwrap();
                     let status_response: JobVerificationResponse = status.respose.unwrap();
                     println!("Program {} has not been verified. ❌", program_id);
                     eprintln!("Error message: {}", status_response.message.as_str());
@@ -231,7 +234,7 @@ pub async fn handle_submission_response(
                 }
                 JobStatus::Unknown => {
                     let _ = sender.send(false);
-                    let _ = handle.join();
+                    handle.join().unwrap();
                     println!("Program {} has not been verified. ❌", program_id);
                     break;
                 }
