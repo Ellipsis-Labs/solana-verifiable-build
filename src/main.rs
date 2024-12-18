@@ -17,7 +17,7 @@ use solana_sdk::{
 use std::{
     io::Read,
     path::PathBuf,
-    process::{exit, Command, Stdio},
+    process::{Command, Stdio},
     sync::{
         atomic::{AtomicBool, Ordering},
         Arc,
@@ -49,23 +49,57 @@ pub fn get_network(network_str: &str) -> &str {
     }
 }
 
+// At the top level, make the signal handler accessible throughout the program
+lazy_static::lazy_static! {
+    static ref SIGNAL_RECEIVED: Arc<AtomicBool> = Arc::new(AtomicBool::new(false));
+}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     // Handle SIGTERM and SIGINT gracefully by stopping the docker container
     let mut signals = Signals::new([SIGTERM, SIGINT])?;
     let mut container_id: Option<String> = None;
     let mut temp_dir: Option<String> = None;
-    let caught_signal = Arc::new(AtomicBool::new(false));
 
-    let caught_signal_clone = caught_signal.clone();
     let handle = signals.handle();
     std::thread::spawn(move || {
-        #[allow(clippy::never_loop)]
-        for _ in signals.forever() {
-            caught_signal_clone.store(true, Ordering::Relaxed);
-            break;
+        if signals.forever().next().is_some() {
+            SIGNAL_RECEIVED.store(true, Ordering::Relaxed);
         }
     });
+
+    // Add a function to check if we should abort
+    let check_signal = |container_id: &mut Option<String>, temp_dir: &mut Option<String>| {
+        if SIGNAL_RECEIVED.load(Ordering::Relaxed) {
+            println!("\nReceived interrupt signal, cleaning up...");
+
+            if let Some(container_id) = container_id.take() {
+                if std::process::Command::new("docker")
+                    .args(["kill", &container_id])
+                    .output()
+                    .is_err()
+                {
+                    println!("Failed to close docker container");
+                } else {
+                    println!("Stopped container {}", container_id)
+                }
+            }
+
+            if let Some(temp_dir) = temp_dir.take() {
+                if std::process::Command::new("rm")
+                    .args(["-rf", &temp_dir])
+                    .output()
+                    .is_err()
+                {
+                    println!("Failed to remove temporary directory");
+                } else {
+                    println!("Removed temporary directory {}", temp_dir);
+                }
+            }
+
+            std::process::exit(130);
+        }
+    };
 
     let matches = App::new("solana-verify")
         .author("Ellipsis Labs <maintainers@ellipsislabs.xyz>")
@@ -78,6 +112,12 @@ async fn main() -> anyhow::Result<()> {
             .global(true)
             .takes_value(true)
             .help("Optionally include your RPC endpoint. Defaults to Solana CLI config file"))
+        .arg(Arg::with_name("compute-unit-price")
+            .long("compute-unit-price")
+            .global(true)
+            .takes_value(true)
+            .default_value("100000")
+            .help("Priority fee in micro-lamports per compute unit"))
         .subcommand(SubCommand::with_name("build")
             .about("Deterministically build the program in a Docker container")
             .arg(Arg::with_name("mount-directory")
@@ -188,7 +228,11 @@ async fn main() -> anyhow::Result<()> {
             .arg(Arg::with_name("cargo-args")
                 .multiple(true)
                 .last(true)
-                .help("Arguments to pass to the underlying `cargo build-bpf` command")))
+                .help("Arguments to pass to the underlying `cargo build-bpf` command"))
+            .arg(Arg::with_name("skip-build")
+                .long("skip-build")
+                .help("Skip building and verification, only upload the PDA")
+                .takes_value(false)))
         .subcommand(SubCommand::with_name("close")
             .about("Close the otter-verify PDA account associated with the given program ID")
             .arg(Arg::with_name("program-id")
@@ -306,6 +350,7 @@ async fn main() -> anyhow::Result<()> {
             Ok(())
         }
         ("verify-from-repo", Some(sub_m)) => {
+            let skip_build = sub_m.is_present("skip-build");
             let remote = sub_m.is_present("remote");
             let mount_path = sub_m.value_of("mount-path").map(|s| s.to_string()).unwrap();
             let repo_url = sub_m.value_of("repo-url").map(|s| s.to_string()).unwrap();
@@ -316,6 +361,11 @@ async fn main() -> anyhow::Result<()> {
             let current_dir = sub_m.is_present("current-dir");
             let skip_prompt = sub_m.is_present("skip-prompt");
             let path_to_keypair = sub_m.value_of("keypair").map(|s| s.to_string());
+            let compute_unit_price = matches
+                .value_of("compute-unit-price")
+                .unwrap()
+                .parse::<u64>()
+                .unwrap_or(100000);
             let cargo_args: Vec<String> = sub_m
                 .values_of("cargo-args")
                 .unwrap_or_default()
@@ -351,14 +401,27 @@ async fn main() -> anyhow::Result<()> {
                 current_dir,
                 skip_prompt,
                 path_to_keypair,
+                compute_unit_price,
+                skip_build,
                 &mut container_id,
                 &mut temp_dir,
+                &check_signal,
             )
             .await
         }
         ("close", Some(sub_m)) => {
             let program_id = sub_m.value_of("program-id").unwrap();
-            process_close(Pubkey::try_from(program_id)?, &connection).await
+            let compute_unit_price = matches
+                .value_of("compute-unit-price")
+                .unwrap()
+                .parse::<u64>()
+                .unwrap_or(100000);
+            process_close(
+                Pubkey::try_from(program_id)?,
+                &connection,
+                compute_unit_price,
+            )
+            .await
         }
         ("list-program-pdas", Some(sub_m)) => {
             let program_id = sub_m.value_of("program-id").unwrap();
@@ -398,32 +461,6 @@ async fn main() -> anyhow::Result<()> {
         ),
     };
 
-    if caught_signal.load(Ordering::Relaxed) || res.is_err() {
-        if let Some(container_id) = container_id.clone().take() {
-            println!("Stopping container {}", container_id);
-            if std::process::Command::new("docker")
-                .args(["kill", &container_id])
-                .output()
-                .is_err()
-            {
-                println!("Failed to close docker container");
-            } else {
-                println!("Stopped container {}", container_id)
-            }
-        }
-        if let Some(temp_dir) = temp_dir.clone().take() {
-            println!("Removing temporary directory {}", temp_dir);
-            if std::process::Command::new("rm")
-                .args(["-rf", &temp_dir])
-                .output()
-                .is_err()
-            {
-                println!("Failed to remove temporary directory");
-            } else {
-                println!("Removed temporary directory {}", temp_dir);
-            }
-        }
-    }
     handle.close();
     res
 }
@@ -533,12 +570,30 @@ pub fn get_buffer_hash(url: Option<String>, buffer_address: Pubkey) -> anyhow::R
 }
 
 pub fn get_program_hash(client: &RpcClient, program_id: Pubkey) -> anyhow::Result<String> {
+    // First check if the program account exists
+    if client.get_account(&program_id).is_err() {
+        return Err(anyhow!("Program {} is not deployed", program_id));
+    }
+
     let program_buffer =
         Pubkey::find_program_address(&[program_id.as_ref()], &bpf_loader_upgradeable::id()).0;
-    let offset = UpgradeableLoaderState::size_of_programdata_metadata();
-    let account_data = client.get_account_data(&program_buffer)?[offset..].to_vec();
-    let program_hash = get_binary_hash(account_data);
-    Ok(program_hash)
+
+    // Then check if the program data account exists
+    match client.get_account_data(&program_buffer) {
+        Ok(data) => {
+            let offset = UpgradeableLoaderState::size_of_programdata_metadata();
+            let account_data = data[offset..].to_vec();
+            let program_hash = get_binary_hash(account_data);
+            Ok(program_hash)
+        }
+        Err(_) => Err(anyhow!(
+            "Could not find program data for {}. This could mean:\n\
+             1. The program is not deployed\n\
+             2. The program is not upgradeable\n\
+             3. The program was deployed with a different loader",
+            program_id
+        )),
+    }
 }
 
 pub fn get_genesis_hash(client: &RpcClient) -> anyhow::Result<String> {
@@ -895,114 +950,15 @@ pub async fn verify_from_repo(
     current_dir: bool,
     skip_prompt: bool,
     path_to_keypair: Option<String>,
+    compute_unit_price: u64,
+    mut skip_build: bool,
     container_id_opt: &mut Option<String>,
     temp_dir_opt: &mut Option<String>,
+    check_signal: &dyn Fn(&mut Option<String>, &mut Option<String>),
 ) -> anyhow::Result<()> {
-    if remote {
-        let genesis_hash = get_genesis_hash(connection)?;
-        if genesis_hash != MAINNET_GENESIS_HASH {
-            return Err(anyhow!("Remote verification only works with mainnet. Please omit the --remote flag to verify locally."));
-        }
+    // Set skip_build to true if remote is true
+    skip_build |= remote;
 
-        println!("Sending verify command to remote machine...");
-        send_job_to_remote(
-            &repo_url,
-            &commit_hash,
-            &program_id,
-            &library_name_opt,
-            bpf_flag,
-            relative_mount_path.clone(),
-            base_image.clone(),
-            cargo_args.clone(),
-        )
-        .await?;
-
-        let mut args: Vec<&str> = Vec::new();
-        if !relative_mount_path.is_empty() {
-            args.push("--mount-path");
-            args.push(&relative_mount_path);
-        }
-        // Get the absolute build path to the solana program directory to build inside docker
-        let mount_path = PathBuf::from(relative_mount_path.clone());
-        println!("Build path: {:?}", mount_path);
-
-        args.push("--library-name");
-        let library_name = match library_name_opt {
-            Some(p) => p,
-            None => {
-                    std::process::Command::new("find")
-                        .args([mount_path.to_str().unwrap(), "-name", "Cargo.toml"])
-                        .output()
-                        .map_err(|e| {
-                            anyhow::format_err!(
-                                "Failed to find Cargo.toml files in root directory: {}",
-                                e.to_string()
-                            )
-                        })
-                        .and_then(|output| {
-                            let mut options = vec![];
-                            for path in String::from_utf8(output.stdout)?.split("\n") {
-                                match get_lib_name_from_cargo_toml(path) {
-                                    Ok(name) => {
-                                        options.push(name);
-                                    }
-                                    Err(_) => {
-                                        continue;
-                                    }
-                                }
-                            }
-                            if options.len() != 1 {
-                                println!(
-                                    "Found multiple possible targets in root directory: {:?}",
-                                    options
-                                );
-                                println!(
-                                    "Please explicitly specify the target with the --package-name <name> option",
-                                );
-                                Err(anyhow::format_err!(
-                                    "Failed to find unique Cargo.toml file in root directory"
-                                ))
-                            } else {
-                                Ok(options[0].clone())
-                            }
-                        })?
-            }
-        };
-        args.push(&library_name);
-        println!("Verifying program: {}", library_name);
-
-        if let Some(base_image) = &base_image {
-            args.push("--base-image");
-            args.push(base_image);
-        }
-
-        if bpf_flag {
-            args.push("--bpf");
-        }
-
-        if !cargo_args.clone().is_empty() {
-            args.push("--");
-            for arg in &cargo_args {
-                args.push(arg);
-            }
-        }
-
-        let x = upload_program(
-            repo_url,
-            &commit_hash.clone(),
-            args.iter().map(|&s| s.into()).collect(),
-            program_id,
-            connection,
-            skip_prompt,
-            path_to_keypair,
-        )
-        .await;
-        if x.is_err() {
-            println!("Error uploading program: {:?}", x);
-            exit(1);
-        }
-        return Ok(());
-    }
     // Create a Vec to store solana-verify args
     let mut args: Vec<&str> = Vec::new();
 
@@ -1034,10 +990,13 @@ pub async fn verify_from_repo(
     let verify_tmp_root_path = format!("{}/{}", verify_dir, base_name);
     println!("Cloning repo into: {}", verify_tmp_root_path);
 
+    check_signal(container_id_opt, temp_dir_opt);
     std::process::Command::new("git")
         .args(["clone", &repo_url, &verify_tmp_root_path])
         .stdout(Stdio::inherit())
         .output()?;
+
+    check_signal(container_id_opt, temp_dir_opt);
 
     // Checkout a specific commit hash, if provided
     if let Some(commit_hash) = commit_hash.as_ref() {
@@ -1056,6 +1015,8 @@ pub async fn verify_from_repo(
         }
     }
 
+    check_signal(container_id_opt, temp_dir_opt);
+
     if !relative_mount_path.is_empty() {
         args.push("--mount-path");
         args.push(&relative_mount_path);
@@ -1065,45 +1026,45 @@ pub async fn verify_from_repo(
     println!("Build path: {:?}", mount_path);
 
     args.push("--library-name");
-    let library_name = match library_name_opt {
+    let library_name = match library_name_opt.clone() {
         Some(p) => p,
         None => {
-                std::process::Command::new("find")
-                    .args([mount_path.to_str().unwrap(), "-name", "Cargo.toml"])
-                    .output()
-                    .map_err(|e| {
-                        anyhow::format_err!(
-                            "Failed to find Cargo.toml files in root directory: {}",
-                            e.to_string()
-                        )
-                    })
-                    .and_then(|output| {
-                        let mut options = vec![];
-                        for path in String::from_utf8(output.stdout)?.split("\n") {
-                            match get_lib_name_from_cargo_toml(path) {
-                                Ok(name) => {
-                                    options.push(name);
-                                }
-                                Err(_) => {
-                                    continue;
-                                }
+            std::process::Command::new("find")
+                .args([mount_path.to_str().unwrap(), "-name", "Cargo.toml"])
+                .output()
+                .map_err(|e| {
+                    anyhow::format_err!(
+                        "Failed to find Cargo.toml files in root directory: {}",
+                        e.to_string()
+                    )
+                })
+                .and_then(|output| {
+                    let mut options = vec![];
+                    for path in String::from_utf8(output.stdout)?.split("\n") {
+                        match get_lib_name_from_cargo_toml(path) {
+                            Ok(name) => {
+                                options.push(name);
+                            }
+                            Err(_) => {
+                                continue;
                             }
                         }
-                        if options.len() != 1 {
-                            println!(
-                                "Found multiple possible targets in root directory: {:?}",
-                                options
-                            );
-                            println!(
-                                "Please explicitly specify the target with the --package-name <name> option",
-                            );
-                            Err(anyhow::format_err!(
-                                "Failed to find unique Cargo.toml file in root directory"
-                            ))
-                        } else {
-                            Ok(options[0].clone())
-                        }
-                    })?
+                    }
+                    if options.len() != 1 {
+                        println!(
+                            "Found multiple possible targets in root directory: {:?}",
+                            options
+                        );
+                        println!(
+                            "Please explicitly specify the target with the --library-name <name> option",
+                        );
+                        Err(anyhow::format_err!(
+                            "Failed to find unique Cargo.toml file in root directory"
+                        ))
+                    } else {
+                        Ok(options[0].clone())
+                    }
+                })?
         }
     };
     args.push(&library_name);
@@ -1125,50 +1086,85 @@ pub async fn verify_from_repo(
         }
     }
 
-    let result = build_and_verify_repo(
-        mount_path.to_str().unwrap().to_string(),
-        base_image.clone(),
-        bpf_flag,
-        library_name.clone(),
-        connection,
-        program_id,
-        cargo_args.clone(),
-        container_id_opt,
-    );
+    let result: Result<(String, String), anyhow::Error> = if !skip_build {
+        build_and_verify_repo(
+            mount_path.to_str().unwrap().to_string(),
+            base_image.clone(),
+            bpf_flag,
+            library_name.clone(),
+            connection,
+            program_id,
+            cargo_args.clone(),
+            container_id_opt,
+        )
+    } else {
+        Ok(("skipped".to_string(), "skipped".to_string()))
+    };
 
     // Cleanup no matter the result
-    std::process::Command::new("rm")
-        .args(["-rf", &verify_dir])
-        .output()?;
+    if !skip_build {
+        std::process::Command::new("rm")
+            .args(["-rf", &verify_dir])
+            .output()?;
+    }
 
-    // Compare hashes or return error
-    if let Ok((build_hash, program_hash)) = result {
-        println!("Executable Program Hash from repo: {}", build_hash);
-        println!("On-chain Program Hash: {}", program_hash);
-
-        if build_hash == program_hash {
-            println!("Program hash matches ✅");
-            let x = upload_program(
-                repo_url,
-                &commit_hash.clone(),
-                args.iter().map(|&s| s.into()).collect(),
-                program_id,
-                connection,
-                skip_prompt,
-                path_to_keypair,
-            )
-            .await;
-            if x.is_err() {
-                println!("Error uploading program: {:?}", x);
-                exit(1);
+    // Handle the result
+    match result {
+        Ok((build_hash, program_hash)) => {
+            if !skip_build {
+                println!("Executable Program Hash from repo: {}", build_hash);
+                println!("On-chain Program Hash: {}", program_hash);
             }
-        } else {
-            println!("Program hashes do not match ❌");
-        }
 
-        Ok(())
-    } else {
-        Err(anyhow!("Error verifying program. {:?}", result))
+            if skip_build || build_hash == program_hash {
+                if skip_build {
+                    println!("Skipping local build and uploading program");
+                } else {
+                    println!("Program hash matches ✅");
+                }
+
+                upload_program(
+                    repo_url.clone(),
+                    &commit_hash.clone(),
+                    args.iter().map(|&s| s.into()).collect(),
+                    program_id,
+                    connection,
+                    skip_prompt,
+                    path_to_keypair,
+                    compute_unit_price,
+                )
+                .await?;
+
+                if remote {
+                    check_signal(container_id_opt, temp_dir_opt);
+                    let genesis_hash = get_genesis_hash(connection)?;
+                    if genesis_hash != MAINNET_GENESIS_HASH {
+                        return Err(anyhow!("Remote verification only works with mainnet. Please omit the --remote flag to verify locally."));
+                    }
+
+                    println!("Sending verify command to remote machine...");
+                    send_job_to_remote(
+                        &repo_url,
+                        &commit_hash,
+                        &program_id,
+                        &library_name_opt.clone(),
+                        bpf_flag,
+                        relative_mount_path.clone(),
+                        base_image.clone(),
+                        cargo_args.clone(),
+                    )
+                    .await?;
+                }
+
+                Ok(())
+            } else {
+                println!("Program hashes do not match ❌");
+                println!("Executable Program Hash from repo: {}", build_hash);
+                println!("On-chain Program Hash: {}", program_hash);
+                Ok(())
+            }
+        }
+        Err(e) => Err(anyhow!("Error verifying program: {:?}", e)),
     }
 }
 

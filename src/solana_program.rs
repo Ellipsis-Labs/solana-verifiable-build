@@ -12,8 +12,7 @@ use std::{
 
 use borsh::{to_vec, BorshDeserialize, BorshSerialize};
 use solana_sdk::{
-    instruction::AccountMeta, message::Message, pubkey::Pubkey, signature::Keypair, signer::Signer,
-    system_program, transaction::Transaction,
+    compute_budget::ComputeBudgetInstruction, instruction::AccountMeta, message::Message, pubkey::Pubkey, signature::Keypair, signer::Signer, system_program, transaction::Transaction
 };
 
 use solana_account_decoder::UiAccountEncoding;
@@ -116,6 +115,7 @@ fn process_otter_verify_ixs(
     instruction: OtterVerifyInstructions,
     rpc_client: &RpcClient,
     path_to_keypair: Option<String>,
+    compute_unit_price: u64,
 ) -> anyhow::Result<()> {
     let user_config = get_user_config()?;
     let signer = if let Some(path_to_keypair) = path_to_keypair {
@@ -147,7 +147,14 @@ fn process_otter_verify_ixs(
         &ix_data,
         accounts_meta_vec,
     );
-    let message = Message::new(&[ix], Some(&signer_pubkey));
+
+    let message = if compute_unit_price > 0 {
+        // Add compute budget instruction for priority fees only if price > 0
+        let compute_budget_ix = ComputeBudgetInstruction::set_compute_unit_price(compute_unit_price);
+        Message::new(&[compute_budget_ix, ix], Some(&signer_pubkey))
+    } else {
+        Message::new(&[ix], Some(&signer_pubkey))
+    };
 
     let mut tx = Transaction::new_unsigned(message);
 
@@ -190,6 +197,7 @@ pub async fn upload_program(
     connection: &RpcClient,
     skip_prompt: bool,
     path_to_keypair: Option<String>,
+    compute_unit_price: u64,
 ) -> anyhow::Result<()> {
     if skip_prompt
         || prompt_user_input(
@@ -237,6 +245,7 @@ pub async fn upload_program(
                 OtterVerifyInstructions::Update,
                 connection,
                 path_to_keypair,
+                compute_unit_price,
             )?;
         } else if connection.get_account(&pda_account_2).is_ok() {
             let wanna_create_new_pda = skip_prompt || prompt_user_input(
@@ -250,6 +259,7 @@ pub async fn upload_program(
                     OtterVerifyInstructions::Initialize,
                     connection,
                     path_to_keypair,
+                    compute_unit_price,
                 )?;
             }
             return Ok(());
@@ -262,6 +272,7 @@ pub async fn upload_program(
                 OtterVerifyInstructions::Initialize,
                 connection,
                 path_to_keypair,
+                compute_unit_price,
             )?;
         }
     } else {
@@ -276,7 +287,11 @@ fn find_build_params_pda(program_id: &Pubkey, signer: &Pubkey) -> (Pubkey, u8) {
     Pubkey::find_program_address(seeds, &OTTER_VERIFY_PROGRAM_ID)
 }
 
-pub async fn process_close(program_address: Pubkey, connection: &RpcClient) -> anyhow::Result<()> {
+pub async fn process_close(
+    program_address: Pubkey,
+    connection: &RpcClient,
+    compute_unit_price: u64,
+) -> anyhow::Result<()> {
     let user_config = get_user_config()?;
     let signer = user_config.0;
     let signer_pubkey = signer.pubkey();
@@ -301,6 +316,7 @@ pub async fn process_close(program_address: Pubkey, connection: &RpcClient) -> a
             OtterVerifyInstructions::Close,
             connection,
             None,
+            compute_unit_price,
         )?;
     } else {
         return Err(anyhow!(
