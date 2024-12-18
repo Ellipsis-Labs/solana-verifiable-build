@@ -7,13 +7,12 @@ use bincode::serialize;
 use cargo_lock::Lockfile;
 use cargo_toml::Manifest;
 use clap::{App, AppSettings, Arg, ArgMatches, SubCommand};
-use serde::Serialize;
 use signal_hook::{
     consts::{SIGINT, SIGTERM},
     iterator::Signals,
 };
 use solana_cli_config::{Config, CONFIG_FILE};
-use solana_client::{rpc_client::RpcClient, rpc_config::EncodingConfig};
+use solana_client::rpc_client::RpcClient;
 use solana_program::{
     compose_transaction, find_build_params_pda, get_all_pdas_available, get_program_pda,
     resolve_rpc_url, InputParams, OtterBuildParams, OtterVerifyInstructions,
@@ -32,7 +31,6 @@ use std::{
         Arc,
     },
 };
-use tokio::join;
 use uuid::Uuid;
 pub mod api;
 #[rustfmt::skip]
@@ -1047,7 +1045,7 @@ fn build_args(
         args.push(relative_mount_path.to_string());
     }
     // Get the absolute build path to the solana program directory to build inside docker
-    let mount_path = PathBuf::from(verify_tmp_root_path.clone()).join(&relative_mount_path);
+    let mount_path = PathBuf::from(verify_tmp_root_path).join(&relative_mount_path);
 
     args.push("--library-name".to_string());
     let library_name = match library_name_opt.clone() {
