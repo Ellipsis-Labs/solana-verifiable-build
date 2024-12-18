@@ -13,10 +13,6 @@ use signal_hook::{
 };
 use solana_cli_config::{Config, CONFIG_FILE};
 use solana_client::rpc_client::RpcClient;
-use solana_program::{
-    compose_transaction, find_build_params_pda, get_all_pdas_available, get_program_pda,
-    resolve_rpc_url, InputParams, OtterBuildParams, OtterVerifyInstructions,
-};
 use solana_sdk::{
     bpf_loader_upgradeable::{self, UpgradeableLoaderState},
     pubkey::Pubkey,
@@ -43,7 +39,11 @@ mod test;
 
 use crate::{
     api::send_job_to_remote,
-    solana_program::{process_close, upload_program},
+    solana_program::{
+        compose_transaction, find_build_params_pda, get_all_pdas_available, get_program_pda,
+        process_close, resolve_rpc_url, upload_program_verification_data, InputParams,
+        OtterBuildParams, OtterVerifyInstructions,
+    },
 };
 
 const MAINNET_GENESIS_HASH: &str = "5eykt4UsFv8P8NJdTREpY1vzqKqZKvdpKuc147dw2N9d";
@@ -227,7 +227,7 @@ async fn main() -> anyhow::Result<()> {
             .arg(Arg::with_name("skip-prompt")
                 .short("y")
                 .long("skip-prompt")
-                .help("Skip the prompt to upload a new program"))
+                .help("Skip the prompt to write verify data on chain without user confirmation"))
             .arg(Arg::with_name("keypair")
                 .short("k")
                 .long("keypair")
@@ -1253,12 +1253,12 @@ pub async fn verify_from_repo(
 
             if skip_build || build_hash == program_hash {
                 if skip_build {
-                    println!("Skipping local build and uploading program");
+                    println!("Skipping local build and writing verify data on chain");
                 } else {
                     println!("Program hash matches ✅");
                 }
 
-                upload_program(
+                upload_program_verification_data(
                     repo_url.clone(),
                     &commit_hash.clone(),
                     args.iter().map(|s| s.to_string()).collect(),

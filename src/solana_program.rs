@@ -208,7 +208,7 @@ pub fn resolve_rpc_url(url: Option<String>) -> anyhow::Result<RpcClient> {
     Ok(connection)
 }
 
-pub async fn upload_program(
+pub async fn upload_program_verification_data(
     git_url: String,
     commit: &Option<String>,
     args: Vec<String>,
