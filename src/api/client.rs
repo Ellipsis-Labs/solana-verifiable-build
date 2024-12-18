@@ -5,7 +5,7 @@ use reqwest::{Client, Response};
 use serde_json::json;
 use solana_client::rpc_client::RpcClient;
 use solana_sdk::pubkey::Pubkey;
-use std::sync::atomic::{Ordering};
+use std::sync::atomic::Ordering;
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -190,7 +190,7 @@ pub async fn handle_submission_response(
                 break; // Exit the loop and continue with normal error handling
             }
 
-            let status = check_job_status(&client, &request_id).await?;
+            let status = check_job_status(client, &request_id).await?;
             match status.status {
                 JobStatus::InProgress => {
                     if SIGNAL_RECEIVED.load(Ordering::Relaxed) {
@@ -266,7 +266,7 @@ pub async fn handle_submission_response(
 async fn check_job_status(client: &Client, request_id: &str) -> anyhow::Result<JobResponse> {
     // Get /job/:id
     let response = client
-        .get(&format!("{}/job/{}", REMOTE_SERVER_URL, request_id))
+        .get(format!("{}/job/{}", REMOTE_SERVER_URL, request_id))
         .send()
         .await
         .unwrap();
@@ -309,11 +309,7 @@ pub async fn get_remote_status(program_id: Pubkey) -> anyhow::Result<()> {
         .build()?;
 
     let response = client
-        .get(format!(
-            "{}/status-all/{}",
-            REMOTE_SERVER_URL,
-            program_id.to_string()
-        ))
+        .get(format!("{}/status-all/{}", REMOTE_SERVER_URL, program_id,))
         .send()
         .await?;
 

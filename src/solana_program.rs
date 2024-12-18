@@ -93,7 +93,7 @@ fn create_ix_data(params: &InputParams, ix: &OtterVerifyInstructions) -> Vec<u8>
 }
 
 fn get_keypair_from_path(path: &str) -> anyhow::Result<Keypair> {
-    solana_clap_utils::keypair::keypair_from_path(&Default::default(), &path, "keypair", false)
+    solana_clap_utils::keypair::keypair_from_path(&Default::default(), path, "keypair", false)
         .map_err(|err| anyhow!("Unable to get signer from path: {}", err))
 }
 
@@ -208,6 +208,7 @@ pub fn resolve_rpc_url(url: Option<String>) -> anyhow::Result<RpcClient> {
     Ok(connection)
 }
 
+#[allow(clippy::too_many_arguments)]
 pub async fn upload_program_verification_data(
     git_url: String,
     commit: &Option<String>,
@@ -228,7 +229,7 @@ pub async fn upload_program_verification_data(
         let cli_config = get_user_config()?;
 
         let signer_pubkey: Pubkey = if let Some(ref path_to_keypair) = path_to_keypair {
-            get_keypair_from_path(&path_to_keypair)?.pubkey()
+            get_keypair_from_path(path_to_keypair)?.pubkey()
         } else {
             cli_config.0.pubkey()
         };
@@ -236,7 +237,7 @@ pub async fn upload_program_verification_data(
         // let rpc_url = connection.url();
         println!("Using connection url: {}", connection.url());
 
-        let last_deployed_slot = get_last_deployed_slot(&connection, &program_address.to_string())
+        let last_deployed_slot = get_last_deployed_slot(connection, &program_address.to_string())
             .await
             .map_err(|err| anyhow!("Unable to get last deployed slot: {}", err))?;
 
@@ -315,7 +316,7 @@ pub async fn process_close(
     let signer = user_config.0;
     let signer_pubkey = signer.pubkey();
 
-    let last_deployed_slot = get_last_deployed_slot(&connection, &program_address.to_string())
+    let last_deployed_slot = get_last_deployed_slot(connection, &program_address.to_string())
         .await
         .map_err(|err| anyhow!("Unable to get last deployed slot: {}", err))?;
 

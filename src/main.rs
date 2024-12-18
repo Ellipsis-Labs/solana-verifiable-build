@@ -1045,7 +1045,7 @@ fn build_args(
         args.push(relative_mount_path.to_string());
     }
     // Get the absolute build path to the solana program directory to build inside docker
-    let mount_path = PathBuf::from(verify_tmp_root_path).join(&relative_mount_path);
+    let mount_path = PathBuf::from(verify_tmp_root_path).join(relative_mount_path);
 
     args.push("--library-name".to_string());
     let library_name = match library_name_opt.clone() {
@@ -1139,7 +1139,7 @@ fn clone_repo_and_checkout(
     println!("Cloning repo into: {}", verify_tmp_root_path);
 
     std::process::Command::new("git")
-        .args(["clone", &repo_url, &verify_tmp_root_path])
+        .args(["clone", repo_url, &verify_tmp_root_path])
         .stdout(Stdio::inherit())
         .output()?;
 
@@ -1164,7 +1164,7 @@ fn clone_repo_and_checkout(
 
 fn get_basename(repo_url: &str) -> anyhow::Result<String> {
     let base_name = std::process::Command::new("basename")
-        .arg(&repo_url)
+        .arg(repo_url)
         .output()
         .map_err(|e| anyhow!("Failed to get basename of repo_url: {:?}", e))
         .and_then(|output| parse_output(output.stdout))?;
@@ -1404,7 +1404,7 @@ pub fn print_build_params(pubkey: &Pubkey, build_params: &OtterBuildParams) {
 }
 
 pub async fn list_program_pdas(program_id: Pubkey, client: &RpcClient) -> anyhow::Result<()> {
-    let pdas = get_all_pdas_available(&client, &program_id).await?;
+    let pdas = get_all_pdas_available(client, &program_id).await?;
     for (pda, build_params) in pdas {
         print_build_params(&pda, &build_params);
     }
@@ -1416,7 +1416,7 @@ pub async fn print_program_pda(
     signer: Option<String>,
     client: &RpcClient,
 ) -> anyhow::Result<()> {
-    let (pda, build_params) = get_program_pda(&client, &program_id, signer).await?;
+    let (pda, build_params) = get_program_pda(client, &program_id, signer).await?;
     print_build_params(&pda, &build_params);
     Ok(())
 }
@@ -1426,7 +1426,7 @@ pub fn get_commit_hash(sub_m: &ArgMatches, repo_url: &str) -> anyhow::Result<Str
         .value_of("commit-hash")
         .map(String::from)
         .or_else(|| {
-            get_commit_hash_from_remote(&repo_url).ok() // Dynamically determine commit hash from remote
+            get_commit_hash_from_remote(repo_url).ok() // Dynamically determine commit hash from remote
         })
         .ok_or_else(|| {
             anyhow::anyhow!("Commit hash must be provided or inferred from the remote repository")
@@ -1436,6 +1436,7 @@ pub fn get_commit_hash(sub_m: &ArgMatches, repo_url: &str) -> anyhow::Result<Str
     Ok(commit_hash)
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn export_pda_tx(
     connection: &RpcClient,
     program_id: Pubkey,
@@ -1451,7 +1452,7 @@ async fn export_pda_tx(
     cargo_args: Vec<String>,
     compute_unit_price: u64,
 ) -> anyhow::Result<()> {
-    let last_deployed_slot = get_last_deployed_slot(&connection, &program_id.to_string())
+    let last_deployed_slot = get_last_deployed_slot(connection, &program_id.to_string())
         .await
         .map_err(|err| anyhow!("Unable to get last deployed slot: {}", err))?;
 
@@ -1472,7 +1473,7 @@ async fn export_pda_tx(
             library_name.clone(),
             &temp_root_path,
             base_image.clone(),
-            bpf_flag.clone(),
+            bpf_flag,
             cargo_args,
         )?
         .0,
@@ -1483,13 +1484,12 @@ async fn export_pda_tx(
         .args(["-rf", &verify_dir])
         .output()?;
 
-    let (pda, _) =
-        find_build_params_pda(&Pubkey::try_from(program_id)?, &Pubkey::try_from(uploader)?);
+    let (pda, _) = find_build_params_pda(&program_id, &uploader);
 
     // check if account already exists
     let instruction = match connection.get_account(&pda) {
         Ok(account_info) => {
-            if account_info.data.len() > 0 {
+            if !account_info.data.is_empty() {
                 println!("PDA already exists, creating update transaction");
                 OtterVerifyInstructions::Update
             } else {
@@ -1502,9 +1502,9 @@ async fn export_pda_tx(
 
     let tx = compose_transaction(
         &input_params,
-        Pubkey::try_from(uploader)?,
+        uploader,
         pda,
-        Pubkey::try_from(program_id)?,
+        program_id,
         instruction,
         compute_unit_price,
     );
