@@ -38,13 +38,10 @@ use image_config::IMAGE_MAP;
 #[cfg(test)]
 mod test;
 
-use crate::{
-    api::send_job_to_remote,
-    solana_program::{
-        compose_transaction, find_build_params_pda, get_all_pdas_available, get_program_pda,
-        process_close, resolve_rpc_url, upload_program_verification_data, InputParams,
-        OtterBuildParams, OtterVerifyInstructions,
-    },
+use crate::solana_program::{
+    compose_transaction, find_build_params_pda, get_all_pdas_available, get_program_pda,
+    process_close, resolve_rpc_url, upload_program_verification_data, InputParams,
+    OtterBuildParams, OtterVerifyInstructions,
 };
 
 const MAINNET_GENESIS_HASH: &str = "5eykt4UsFv8P8NJdTREpY1vzqKqZKvdpKuc147dw2N9d";
@@ -1283,18 +1280,11 @@ pub async fn verify_from_repo(
                         "Sending verify command to remote machine with uploader: {}",
                         &uploader
                     );
-                    send_job_with_uploader_to_remote(&connection, &program_id, &uploader).await?;
-                    // send_job_to_remote(
-                    //     &repo_url,
-                    //     &commit_hash,
-                    //     &program_id,
-                    //     &library_name_opt.clone(),
-                    //     bpf_flag,
-                    //     relative_mount_path.clone(),
-                    //     base_image.clone(),
-                    //     cargo_args.clone(),
-                    // )
-                    // .await?;
+                    println!(
+                        "\nPlease note that if the desired uploader is not the provided keypair, you will need to run `solana-verify remote submit-job --program-id {} --uploader <uploader-address>.\n",
+                        &program_id,
+                    );
+                    send_job_with_uploader_to_remote(connection, &program_id, &uploader).await?;
                 }
 
                 Ok(())
@@ -1305,13 +1295,7 @@ pub async fn verify_from_repo(
                 Ok(())
             }
         }
-        Err(e) => {
-            eprintln!(
-                "\nPlease note that if the desired uploader is not the provided keypair, you will need to run `solana-verify remote submit-job --program-id {} --uploader <uploader-address>.\n",
-                &program_id,
-            );
-            Err(anyhow!("Error verifying program: {:?}", e))
-        }
+        Err(e) => Err(anyhow!("Error verifying program: {:?}", e)),
     }
 }
 

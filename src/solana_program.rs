@@ -212,7 +212,7 @@ pub fn get_address_from_keypair_or_config(
     path_to_keypair: Option<&String>,
 ) -> anyhow::Result<Pubkey> {
     if let Some(path_to_keypair) = path_to_keypair {
-        Ok(get_keypair_from_path(&path_to_keypair)?.pubkey())
+        Ok(get_keypair_from_path(path_to_keypair)?.pubkey())
     } else {
         Ok(get_user_config()?.0.pubkey())
     }
