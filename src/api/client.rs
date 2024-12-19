@@ -89,45 +89,6 @@ fn print_verification_status(
     println!("Repo URL: {}", status_response.repo_url.as_str());
 }
 
-// Send a job to the remote server
-#[allow(clippy::too_many_arguments)]
-pub async fn send_job_to_remote(
-    repo_url: &str,
-    commit_hash: &Option<String>,
-    program_id: &Pubkey,
-    library_name: &Option<String>,
-    bpf_flag: bool,
-    relative_mount_path: String,
-    base_image: Option<String>,
-    cargo_args: Vec<String>,
-) -> anyhow::Result<()> {
-    let client = Client::builder()
-        .timeout(Duration::from_secs(18000))
-        .build()?;
-
-    // Send the POST request
-    let response = client
-        .post(format!("{}/verify", REMOTE_SERVER_URL))
-        .json(&json!({
-            "repository": repo_url,
-            "commit_hash": commit_hash,
-            "program_id": program_id.to_string(),
-            "lib_name": library_name,
-            "bpf_flag": bpf_flag,
-            "mount_path":  if relative_mount_path.is_empty() {
-                None
-            } else {
-                Some(relative_mount_path)
-            },
-            "base_image": base_image,
-            "cargo_args": cargo_args,
-        }))
-        .send()
-        .await?;
-
-    handle_submission_response(&client, response, program_id).await
-}
-
 pub async fn send_job_with_uploader_to_remote(
     connection: &RpcClient,
     program_id: &Pubkey,
