@@ -13,6 +13,7 @@ use signal_hook::{
 };
 use solana_cli_config::{Config, CONFIG_FILE};
 use solana_client::rpc_client::RpcClient;
+use solana_program::get_address_from_keypair_or_config;
 use solana_sdk::{
     bpf_loader_upgradeable::{self, UpgradeableLoaderState},
     pubkey::Pubkey,
@@ -1265,7 +1266,7 @@ pub async fn verify_from_repo(
                     program_id,
                     connection,
                     skip_prompt,
-                    path_to_keypair,
+                    path_to_keypair.clone(),
                     compute_unit_price,
                 )
                 .await?;
@@ -1277,18 +1278,23 @@ pub async fn verify_from_repo(
                         return Err(anyhow!("Remote verification only works with mainnet. Please omit the --remote flag to verify locally."));
                     }
 
-                    println!("Sending verify command to remote machine...");
-                    send_job_to_remote(
-                        &repo_url,
-                        &commit_hash,
-                        &program_id,
-                        &library_name_opt.clone(),
-                        bpf_flag,
-                        relative_mount_path.clone(),
-                        base_image.clone(),
-                        cargo_args.clone(),
-                    )
-                    .await?;
+                    let uploader = get_address_from_keypair_or_config(path_to_keypair.as_ref())?;
+                    println!(
+                        "Sending verify command to remote machine with uploader: {}",
+                        &uploader
+                    );
+                    send_job_with_uploader_to_remote(&connection, &program_id, &uploader).await?;
+                    // send_job_to_remote(
+                    //     &repo_url,
+                    //     &commit_hash,
+                    //     &program_id,
+                    //     &library_name_opt.clone(),
+                    //     bpf_flag,
+                    //     relative_mount_path.clone(),
+                    //     base_image.clone(),
+                    //     cargo_args.clone(),
+                    // )
+                    // .await?;
                 }
 
                 Ok(())
@@ -1299,7 +1305,13 @@ pub async fn verify_from_repo(
                 Ok(())
             }
         }
-        Err(e) => Err(anyhow!("Error verifying program: {:?}", e)),
+        Err(e) => {
+            eprintln!(
+                "\nPlease note that if the desired uploader is not the provided keypair, you will need to run `solana-verify remote submit-job --program-id {} --uploader <uploader-address>.\n",
+                &program_id,
+            );
+            Err(anyhow!("Error verifying program: {:?}", e))
+        }
     }
 }
 
