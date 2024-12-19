@@ -208,6 +208,16 @@ pub fn resolve_rpc_url(url: Option<String>) -> anyhow::Result<RpcClient> {
     Ok(connection)
 }
 
+pub fn get_address_from_keypair_or_config(
+    path_to_keypair: Option<&String>,
+) -> anyhow::Result<Pubkey> {
+    if let Some(path_to_keypair) = path_to_keypair {
+        Ok(get_keypair_from_path(path_to_keypair)?.pubkey())
+    } else {
+        Ok(get_user_config()?.0.pubkey())
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 pub async fn upload_program_verification_data(
     git_url: String,
@@ -226,13 +236,7 @@ pub async fn upload_program_verification_data(
     {
         println!("Uploading the program verification params to the Solana blockchain...");
 
-        let cli_config = get_user_config()?;
-
-        let signer_pubkey: Pubkey = if let Some(ref path_to_keypair) = path_to_keypair {
-            get_keypair_from_path(path_to_keypair)?.pubkey()
-        } else {
-            cli_config.0.pubkey()
-        };
+        let signer_pubkey: Pubkey = get_address_from_keypair_or_config(path_to_keypair.as_ref())?;
 
         // let rpc_url = connection.url();
         println!("Using connection url: {}", connection.url());
