@@ -23,11 +23,16 @@ jobs:
           - test_verify_from_image
           - test_games_preset
           - test_agave_2_1
+        rust_toolchain:
+          - stable
+          - nightly
     steps:
       - uses: actions/checkout@v4
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ matrix.rust_toolchain }}
 
       - name: Cache dependencies
         uses: Swatinem/rust-cache@v2
@@ -35,5 +40,5 @@ jobs:
       - name: Build
         run: cargo build
 
-      - name: Run ${{ matrix.test_name }}
+      - name: Run ${{ matrix.test_name }} ${{ matrix.rust_toolchain }}
         run: cargo test ${{ matrix.test_name }} -- --nocapture
