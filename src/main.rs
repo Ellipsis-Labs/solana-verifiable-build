@@ -138,6 +138,10 @@ async fn main() -> anyhow::Result<()> {
                 .long("base-image")
                 .takes_value(true)
                 .help("Optionally specify a custom base docker image to use for building"))
+            .arg(Arg::with_name("tools-version")
+                .long("tools-version")
+                .takes_value(true)
+                .help("Optionally specify the version of the platform tools to use"))
             .arg(Arg::with_name("bpf")
                 .long("bpf")
                 .help("If the program requires cargo build-bpf (instead of cargo build-sbf), set this flag"))
@@ -231,6 +235,10 @@ async fn main() -> anyhow::Result<()> {
                 .long("keypair")
                 .takes_value(true)
                 .help("Optionally specify a keypair to use for uploading the program verification args"))
+            .arg(Arg::with_name("tools-version")
+                .long("tools-version")
+                .takes_value(true)
+                .help("Optionally specify the version of the platform tools to use"))
             .arg(Arg::with_name("cargo-args")
                 .multiple(true)
                 .last(true)
@@ -355,6 +363,7 @@ async fn main() -> anyhow::Result<()> {
             let library_name = sub_m.value_of("library-name").map(|s| s.to_string());
             let base_image = sub_m.value_of("base-image").map(|s| s.to_string());
             let bpf_flag = sub_m.is_present("bpf");
+            let tools_version = sub_m.value_of("tools-version").map(|s| s.to_string());
             let cargo_args = sub_m
                 .values_of("cargo-args")
                 .unwrap_or_default()
@@ -365,6 +374,7 @@ async fn main() -> anyhow::Result<()> {
                 library_name,
                 base_image,
                 bpf_flag,
+                tools_version,
                 cargo_args,
                 &mut container_id,
             )
@@ -414,6 +424,7 @@ async fn main() -> anyhow::Result<()> {
             let base_image = sub_m.value_of("base-image").map(|s| s.to_string());
             let library_name = sub_m.value_of("library-name").map(|s| s.to_string());
             let bpf_flag = sub_m.is_present("bpf");
+            let tools_version = sub_m.value_of("tools-version").map(|s| s.to_string());
             let current_dir = sub_m.is_present("current-dir");
             let skip_prompt = sub_m.is_present("skip-prompt");
             let path_to_keypair = sub_m.value_of("keypair").map(|s| s.to_string());
@@ -441,6 +452,7 @@ async fn main() -> anyhow::Result<()> {
                 base_image,
                 library_name,
                 bpf_flag,
+                tools_version,
                 cargo_args,
                 current_dir,
                 skip_prompt,
@@ -718,6 +730,7 @@ pub fn build(
     library_name: Option<String>,
     base_image: Option<String>,
     bpf_flag: bool,
+    tools_version: Option<String>,
     cargo_args: Vec<String>,
     container_id_opt: &mut Option<String>,
 ) -> anyhow::Result<()> {
@@ -883,9 +896,23 @@ pub fn build(
         .as_slice()
     };
 
+    // if tools version is specified, also add --force-tools-install
+    let tools_version_args: Vec<String> = if let Some(version) = tools_version {
+        vec![
+            "--force-tools-install".to_string(),
+            "--tools-version".to_string(),
+            version,
+        ]
+    } else {
+        vec![]
+    };
+
+    println!("tools_version_args: {:?}", tools_version_args);
+
     std::process::Command::new("docker")
         .args(["exec", "-w", &build_path, &container_id])
         .args(["cargo", build_command])
+        .args(tools_version_args)
         .args(["--"])
         .args(locked_args)
         .args(manifest_path_filter)
@@ -1181,6 +1208,7 @@ pub async fn verify_from_repo(
     base_image: Option<String>,
     library_name_opt: Option<String>,
     bpf_flag: bool,
+    tools_version: Option<String>,
     cargo_args: Vec<String>,
     current_dir: bool,
     skip_prompt: bool,
@@ -1230,6 +1258,7 @@ pub async fn verify_from_repo(
             library_name.clone(),
             connection,
             program_id,
+            tools_version,
             cargo_args.clone(),
             container_id_opt,
         )
@@ -1308,6 +1337,7 @@ pub fn build_and_verify_repo(
     library_name: String,
     connection: &RpcClient,
     program_id: Pubkey,
+    tools_version: Option<String>,
     cargo_args: Vec<String>,
     container_id_opt: &mut Option<String>,
 ) -> anyhow::Result<(String, String)> {
@@ -1318,6 +1348,7 @@ pub fn build_and_verify_repo(
         Some(library_name),
         base_image,
         bpf_flag,
+        tools_version,
         cargo_args,
         container_id_opt,
     )?;
