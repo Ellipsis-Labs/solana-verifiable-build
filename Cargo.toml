@@ -9,7 +9,7 @@ license = "MIT"
 [dependencies]
 anyhow = "1.0.79"
 borsh = { version = "1.2.1", features = ["derive"] }
-cargo-lock = "9.0.0" # missing in workspace
+cargo-lock = "10.1.0" # missing in workspace
 cargo_toml = "0.15.3" # missing in workspace
 clap = "2.33.1" # version of v1.18 does not support derive
 crossbeam-channel = "0.5.11"
