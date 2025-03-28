@@ -191,10 +191,10 @@ fn process_otter_verify_ixs(
 
 pub fn resolve_rpc_url(url: Option<String>) -> anyhow::Result<RpcClient> {
     let connection = match url.as_deref() {
-        Some("m") => RpcClient::new("https://api.mainnet-beta.solana.com"),
-        Some("d") => RpcClient::new("https://api.devnet.solana.com"),
-        Some("t") => RpcClient::new("https://api.testnet.solana.com"),
-        Some("l") => RpcClient::new("http://localhost:8899"),
+        Some("m") | Some("mainnet") | Some("main") => RpcClient::new("https://api.mainnet-beta.solana.com"),
+        Some("d") | Some("devnet") | Some("dev") => RpcClient::new("https://api.devnet.solana.com"),
+        Some("t") | Some("testnet") | Some("test") => RpcClient::new("https://api.testnet.solana.com"),
+        Some("l") | Some("localhost") | Some("local") => RpcClient::new("http://localhost:8899"),
         Some(url) => RpcClient::new(url),
         None => {
             if let Ok(cli_config) = get_user_config() {
