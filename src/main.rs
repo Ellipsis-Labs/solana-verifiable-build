@@ -742,32 +742,28 @@ pub fn build(
     let (major, minor, patch) = get_pkg_version_from_cargo_lock("solana-program", &lockfile)?;
 
     let mut solana_version: Option<String> = None;
-    let  image: String = base_image.unwrap_or_else(|| {
-        if bpf_flag {
-            // Use this for backwards compatibility with anchor verified builds
-            solana_version = Some("v1.13.5".to_string());
-            "projectserum/build@sha256:75b75eab447ebcca1f471c98583d9b5d82c4be122c470852a022afcf9c98bead".to_string()
-        } else if let Some(digest) = IMAGE_MAP.get(&(major, minor, patch)) {
-                println!("Found docker image for Solana version {}.{}.{}", major, minor, patch);
+    let image: String = match base_image {
+        Some(base_image) => base_image,
+        None => {
+            if bpf_flag {
+                // Use this for backwards compatibility with anchor verified builds
+                solana_version = Some("v1.13.5".to_string());
+                "projectserum/build@sha256:75b75eab447ebcca1f471c98583d9b5d82c4be122c470852a022afcf9c98bead".to_string()
+            } else if let Some(digest) = IMAGE_MAP.get(&(major, minor, patch)) {
+                println!(
+                    "Found docker image for Solana version {}.{}.{}",
+                    major, minor, patch
+                );
                 solana_version = Some(format!("v{}.{}.{}", major, minor, patch));
                 format!("solanafoundation/solana-verifiable-build@{}", digest)
             } else {
-                println!("Unable to find docker image for Solana version {}.{}.{}", major, minor, patch);
-                let prev = IMAGE_MAP.range(..(major, minor, patch)).next_back();
-                let next = IMAGE_MAP.range((major, minor, patch)..).next();
-                let (version, digest) = if let Some((version, digest)) = prev {
-                    (version, digest)
-                } else if let Some((version, digest)) = next {
-                    (version, digest)
-                } else {
-                    println!("Unable to find backup docker image for Solana version {}.{}.{}", major, minor, patch);
-                    std::process::exit(1);
-                };
-                println!("Using backup docker image for Solana version {}.{}.{}", version.0, version.1, version.2);
-                solana_version = Some(format!("v{}.{}.{}", version.0, version.1, version.2));
-                format!("solanafoundation/solana-verifiable-build@{}", digest)
+                return Err(anyhow!(format!(
+                    "Unable to find docker image for Solana version {}.{}.{}",
+                    major, minor, patch
+                )));
             }
-    });
+        }
+    };
 
     let mut manifest_path = None;
 
@@ -1346,9 +1342,10 @@ pub fn build_and_verify_repo(
 }
 
 pub fn parse_output(output: Vec<u8>) -> anyhow::Result<String> {
-    let parsed_output = String::from_utf8(output)?
+    let string_output = String::from_utf8(output)?;
+    let parsed_output = string_output
         .strip_suffix("\n")
-        .ok_or_else(|| anyhow!("Failed to parse output"))?
+        .ok_or_else(|| anyhow!("Failed to parse output: {string_output}"))?
         .to_string();
     Ok(parsed_output)
 }
