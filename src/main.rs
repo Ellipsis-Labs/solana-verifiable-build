@@ -1,4 +1,4 @@
-use anyhow::anyhow;
+use anyhow::{anyhow, ensure};
 use api::{
     get_last_deployed_slot, get_remote_job, get_remote_status, send_job_with_uploader_to_remote,
 };
@@ -22,7 +22,7 @@ use solana_transaction_status::UiTransactionEncoding;
 use std::{
     io::Read,
     path::PathBuf,
-    process::{Command, Stdio},
+    process::{Command, Output, Stdio},
     sync::{
         atomic::{AtomicBool, Ordering},
         Arc,
@@ -781,6 +781,10 @@ pub fn build(
             )
         })
         .and_then(|output| {
+            ensure!(
+                output.status.success(),
+                "Failed to find Cargo.toml files in root directory:"
+            );
             for p in String::from_utf8(output.stdout)?.split("\n") {
                 match get_lib_name_from_cargo_toml(p) {
                     Ok(name) => {
@@ -806,7 +810,7 @@ pub fn build(
         .stderr(Stdio::inherit())
         .output()
         .map_err(|e| anyhow::format_err!("Failed to get workdir: {}", e.to_string()))
-        .and_then(|output| parse_output(output.stdout))?;
+        .and_then(|output| parse_output(output))?;
 
     println!("Workdir: {}", workdir);
 
@@ -845,7 +849,7 @@ pub fn build(
             .output()
             .map_err(|e| anyhow!("Docker build failed: {}", e.to_string()))?;
 
-        parse_output(output.stdout)?
+        parse_output(output)?
     };
 
     // Set the container id so we can kill it later if the process is interrupted
@@ -858,7 +862,7 @@ pub fn build(
         // ARM processors running Linux have a bug where the build fails if the dependencies are not preloaded.
         // Running the build without the pre-fetch will cause the container to run out of memory.
         // This is a workaround for that issue.
-        std::process::Command::new("docker")
+        let output = std::process::Command::new("docker")
             .args(["exec", &container_id])
             .args([
                 "cargo",
@@ -870,6 +874,7 @@ pub fn build(
             .stderr(Stdio::inherit())
             .stdout(Stdio::inherit())
             .output()?;
+        ensure!(output.status.success());
         println!("Finished fetching build dependencies");
 
         ["--frozen", "--locked"].as_slice()
@@ -883,7 +888,7 @@ pub fn build(
         .as_slice()
     };
 
-    std::process::Command::new("docker")
+    let output = std::process::Command::new("docker")
         .args(["exec", "-w", &build_path, &container_id])
         .args(["cargo", build_command])
         .args(["--"])
@@ -893,6 +898,7 @@ pub fn build(
         .stderr(Stdio::inherit())
         .stdout(Stdio::inherit())
         .output()?;
+    ensure!(output.status.success());
 
     println!("Finished building program");
     println!("Program Solana version: v{}.{}.{}", major, minor, patch);
@@ -910,13 +916,15 @@ pub fn build(
             ])
             .output()
             .map_err(|e| anyhow!("Failed to find program: {}", e.to_string()))
-            .and_then(|output| parse_output(output.stdout))?;
+            .and_then(|output| parse_output(output))?;
         let executable_hash = get_file_hash(&executable_path)?;
         println!("{}", executable_hash);
     }
-    std::process::Command::new("docker")
+    let output = std::process::Command::new("docker")
         .args(["kill", &container_id])
         .output()?;
+    ensure!(output.status.success());
+
     Ok(())
 }
 
@@ -941,7 +949,7 @@ pub fn verify_from_image(
         .stderr(Stdio::inherit())
         .output()
         .map_err(|e| anyhow::format_err!("Failed to get workdir: {}", e.to_string()))
-        .and_then(|output| parse_output(output.stdout))?;
+        .and_then(|output| parse_output(output))?;
 
     println!("Workdir: {}", workdir);
 
@@ -961,7 +969,7 @@ pub fn verify_from_image(
             .args([&image])
             .output()
             .map_err(|e| anyhow!("Docker build failed: {}", e.to_string()))?;
-        parse_output(output.stdout)?
+        parse_output(output)?
     };
 
     container_id_opt.replace(container_id.clone());
@@ -985,7 +993,7 @@ pub fn verify_from_image(
     temp_dir.replace(verify_dir.clone());
 
     let program_filepath = format!("{}/program.so", verify_dir);
-    std::process::Command::new("docker")
+    let output = std::process::Command::new("docker")
         .args([
             "cp",
             format!("{}:{}/{}", container_id, workdir, executable_path).as_str(),
@@ -995,6 +1003,7 @@ pub fn verify_from_image(
         .stderr(Stdio::inherit())
         .output()
         .map_err(|e| anyhow::format_err!("Failed to copy executable file {}", e.to_string()))?;
+    ensure!(output.status.success(), "Failed to copy executable file");
 
     let executable_hash: String = get_file_hash(program_filepath.as_str())?;
     let client = get_client(network);
@@ -1060,6 +1069,7 @@ fn build_args(
                     )
                 })
                 .and_then(|output| {
+                    ensure!(output.status.success(), "Failed to find Cargo.toml files in root directory");
                     let mut options = vec![];
                     for path in String::from_utf8(output.stdout)?.split("\n") {
                         match get_lib_name_from_cargo_toml(path) {
@@ -1137,24 +1147,27 @@ fn clone_repo_and_checkout(
     let verify_tmp_root_path = format!("{}/{}", verify_dir, base_name);
     println!("Cloning repo into: {}", verify_tmp_root_path);
 
-    std::process::Command::new("git")
+    let output = std::process::Command::new("git")
         .args(["clone", repo_url, &verify_tmp_root_path])
         .stdout(Stdio::inherit())
         .output()?;
+    ensure!(output.status.success());
 
     if let Some(commit_hash) = commit_hash.as_ref() {
-        let result = std::process::Command::new("git")
+        let output = std::process::Command::new("git")
             .args(["-C", &verify_tmp_root_path])
             .args(["checkout", commit_hash])
             .output()
-            .map_err(|e| anyhow!("Failed to checkout commit hash: {:?}", e));
-        if result.is_ok() {
+            .map_err(|e| anyhow!("Failed to checkout commit hash: {:?}", e))?;
+        if output.status.success() {
             println!("Checked out commit hash: {}", commit_hash);
         } else {
-            std::process::Command::new("rm")
+            let output = std::process::Command::new("rm")
                 .args(["-rf", verify_dir.as_str()])
                 .output()?;
-            Err(anyhow!("Encountered error in git setup: {:?}", result))?;
+            ensure!(output.status.success());
+
+            Err(anyhow!("Encountered error in git setup"))?;
         }
     }
 
@@ -1166,7 +1179,7 @@ fn get_basename(repo_url: &str) -> anyhow::Result<String> {
         .arg(repo_url)
         .output()
         .map_err(|e| anyhow!("Failed to get basename of repo_url: {:?}", e))
-        .and_then(|output| parse_output(output.stdout))?;
+        .and_then(|output| parse_output(output))?;
     Ok(base_name)
 }
 
@@ -1331,7 +1344,7 @@ pub fn build_and_verify_repo(
         ])
         .output()
         .map_err(|e| anyhow::format_err!("Failed to find executable file {}", e.to_string()))
-        .and_then(|output| parse_output(output.stdout))?;
+        .and_then(|output| parse_output(output))?;
     println!("Executable file found at path: {:?}", executable_path);
     let build_hash = get_file_hash(&executable_path)?;
 
@@ -1345,8 +1358,17 @@ pub fn build_and_verify_repo(
     Ok((build_hash, program_hash))
 }
 
-pub fn parse_output(output: Vec<u8>) -> anyhow::Result<String> {
-    let parsed_output = String::from_utf8(output)?
+pub fn parse_output(output: Output) -> anyhow::Result<String> {
+    let string_result = String::from_utf8(output.stdout);
+    // If not a success the output is meaningless
+    ensure!(
+        output.status.success(),
+        "Status: {}, {:?}",
+        output.status,
+        string_result
+    );
+
+    let parsed_output = string_result?
         .strip_suffix("\n")
         .ok_or_else(|| anyhow!("Failed to parse output"))?
         .to_string();
@@ -1477,9 +1499,10 @@ async fn export_pda_tx(
         deployed_slot: last_deployed_slot,
     };
 
-    std::process::Command::new("rm")
+    let output = std::process::Command::new("rm")
         .args(["-rf", &verify_dir])
         .output()?;
+    ensure!(output.status.success());
 
     let (pda, _) = find_build_params_pda(&program_id, &uploader);
 
