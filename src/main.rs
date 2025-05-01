@@ -810,7 +810,7 @@ pub fn build(
         .stderr(Stdio::inherit())
         .output()
         .map_err(|e| anyhow::format_err!("Failed to get workdir: {}", e.to_string()))
-        .and_then(|output| parse_output(output))?;
+        .and_then(parse_output)?;
 
     println!("Workdir: {}", workdir);
 
@@ -874,7 +874,10 @@ pub fn build(
             .stderr(Stdio::inherit())
             .stdout(Stdio::inherit())
             .output()?;
-        ensure!(output.status.success());
+        ensure!(
+            output.status.success(),
+            "Failed to cargo fetch dependencies"
+        );
         println!("Finished fetching build dependencies");
 
         ["--frozen", "--locked"].as_slice()
@@ -898,7 +901,7 @@ pub fn build(
         .stderr(Stdio::inherit())
         .stdout(Stdio::inherit())
         .output()?;
-    ensure!(output.status.success());
+    ensure!(output.status.success(), "Failed to cargo build");
 
     println!("Finished building program");
     println!("Program Solana version: v{}.{}.{}", major, minor, patch);
@@ -916,14 +919,14 @@ pub fn build(
             ])
             .output()
             .map_err(|e| anyhow!("Failed to find program: {}", e.to_string()))
-            .and_then(|output| parse_output(output))?;
+            .and_then(parse_output)?;
         let executable_hash = get_file_hash(&executable_path)?;
         println!("{}", executable_hash);
     }
     let output = std::process::Command::new("docker")
         .args(["kill", &container_id])
         .output()?;
-    ensure!(output.status.success());
+    ensure!(output.status.success(), "Failed to find the program binary");
 
     Ok(())
 }
@@ -949,7 +952,7 @@ pub fn verify_from_image(
         .stderr(Stdio::inherit())
         .output()
         .map_err(|e| anyhow::format_err!("Failed to get workdir: {}", e.to_string()))
-        .and_then(|output| parse_output(output))?;
+        .and_then(parse_output)?;
 
     println!("Workdir: {}", workdir);
 
@@ -1151,7 +1154,10 @@ fn clone_repo_and_checkout(
         .args(["clone", repo_url, &verify_tmp_root_path])
         .stdout(Stdio::inherit())
         .output()?;
-    ensure!(output.status.success());
+    ensure!(
+        output.status.success(),
+        "Failed to git clone the repository"
+    );
 
     if let Some(commit_hash) = commit_hash.as_ref() {
         let output = std::process::Command::new("git")
@@ -1165,7 +1171,10 @@ fn clone_repo_and_checkout(
             let output = std::process::Command::new("rm")
                 .args(["-rf", verify_dir.as_str()])
                 .output()?;
-            ensure!(output.status.success());
+            ensure!(
+                output.status.success(),
+                "Failed to delete the verifiable build directory"
+            );
 
             Err(anyhow!("Encountered error in git setup"))?;
         }
@@ -1179,7 +1188,7 @@ fn get_basename(repo_url: &str) -> anyhow::Result<String> {
         .arg(repo_url)
         .output()
         .map_err(|e| anyhow!("Failed to get basename of repo_url: {:?}", e))
-        .and_then(|output| parse_output(output))?;
+        .and_then(parse_output)?;
     Ok(base_name)
 }
 
@@ -1344,7 +1353,7 @@ pub fn build_and_verify_repo(
         ])
         .output()
         .map_err(|e| anyhow::format_err!("Failed to find executable file {}", e.to_string()))
-        .and_then(|output| parse_output(output))?;
+        .and_then(parse_output)?;
     println!("Executable file found at path: {:?}", executable_path);
     let build_hash = get_file_hash(&executable_path)?;
 
@@ -1502,7 +1511,10 @@ async fn export_pda_tx(
     let output = std::process::Command::new("rm")
         .args(["-rf", &verify_dir])
         .output()?;
-    ensure!(output.status.success());
+    ensure!(
+        output.status.success(),
+        "Failed to delete the verifiable build directory"
+    );
 
     let (pda, _) = find_build_params_pda(&program_id, &uploader);
 
