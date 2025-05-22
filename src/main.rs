@@ -713,6 +713,28 @@ pub fn get_docker_resource_limits() -> Option<(String, String)> {
     memory.zip(cpus)
 }
 
+fn setup_offline_build(mount_path: &str) -> anyhow::Result<()> {
+    // Run cargo vendor
+    let output = std::process::Command::new("cargo")
+        .args(["vendor"])
+        .current_dir(mount_path)
+        .stderr(Stdio::inherit())
+        .stdout(Stdio::inherit())
+        .output()?;
+    ensure!(output.status.success(), "Failed to run cargo vendor");
+
+    // Create .cargo directory if it doesn't exist
+    let cargo_dir = format!("{}/.cargo", mount_path);
+    std::fs::create_dir_all(&cargo_dir)?;
+
+    // Create config.toml with vendored sources configuration
+    let config_content = "[source.crates-io]\nreplace-with = \"vendored-sources\"\n\n[source.vendored-sources]\ndirectory = \"vendor\"";
+    std::fs::write(format!("{}/config.toml", cargo_dir), config_content)?;
+
+    println!("Successfully set up offline build configuration");
+    Ok(())
+}
+
 pub fn build(
     mount_directory: Option<String>,
     library_name: Option<String>,
@@ -735,6 +757,11 @@ pub fn build(
     if !std::path::Path::new(&lockfile).exists() {
         println!("Mount directory must contain a Cargo.lock file");
         return Err(anyhow!(format!("No lockfile found at {}", lockfile)));
+    }
+
+    // Check if --offline flag is present in cargo_args
+    if cargo_args.contains(&"--offline".to_string()) {
+        setup_offline_build(&mount_path)?;
     }
 
     let build_command = if bpf_flag { "build-bpf" } else { "build-sbf" };
