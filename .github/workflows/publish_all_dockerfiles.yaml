@@ -36,6 +36,7 @@ jobs:
     needs: detect_changes
     if: ${{ needs.detect_changes.outputs.versions != '[]' }}
     strategy:
+      fail-fast: false
       matrix: 
         version: ${{ fromJson(needs.detect_changes.outputs.versions )}}
     name: Push Docker images to docker.io
