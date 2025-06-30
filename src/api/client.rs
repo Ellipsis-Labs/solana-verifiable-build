@@ -3,7 +3,7 @@ use crossbeam_channel::{unbounded, Receiver};
 use indicatif::{HumanDuration, ProgressBar, ProgressStyle};
 use reqwest::{Client, Response};
 use serde_json::json;
-use solana_client::rpc_client::RpcClient;
+use solana_rpc_client::rpc_client::RpcClient;
 use solana_sdk::pubkey::Pubkey;
 use std::sync::atomic::Ordering;
 use std::thread;

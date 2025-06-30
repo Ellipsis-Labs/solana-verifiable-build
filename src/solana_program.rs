@@ -1,9 +1,9 @@
 use anyhow::anyhow;
 use solana_cli_config::Config;
-use solana_client::{
-    rpc_client::RpcClient,
-    rpc_config::RpcProgramAccountsConfig,
-    rpc_filter::{Memcmp, RpcFilterType},
+use solana_rpc_client::rpc_client::RpcClient;
+use solana_rpc_client_api::{
+    config::{RpcAccountInfoConfig, RpcProgramAccountsConfig},
+    filter::{Memcmp, RpcFilterType},
 };
 use std::{
     io::{self, Read, Write},
@@ -13,10 +13,11 @@ use std::{
 use borsh::{to_vec, BorshDeserialize, BorshSerialize};
 use solana_sdk::{
     compute_budget::ComputeBudgetInstruction, instruction::AccountMeta, message::Message,
-    pubkey::Pubkey, signature::Keypair, signer::Signer, system_program, transaction::Transaction,
+    pubkey::Pubkey, signature::Keypair, signer::Signer, transaction::Transaction,
 };
+use solana_system_interface;
 
-use solana_account_decoder::UiAccountEncoding;
+use solana_account_decoder_client_types::UiAccountEncoding;
 use solana_sdk::commitment_config::{CommitmentConfig, CommitmentLevel};
 
 use crate::api::get_last_deployed_slot;
@@ -130,7 +131,10 @@ pub fn compose_transaction(
     ];
 
     if instruction != OtterVerifyInstructions::Close {
-        accounts_meta_vec.push(AccountMeta::new_readonly(system_program::ID, false));
+        accounts_meta_vec.push(AccountMeta::new_readonly(
+            solana_system_interface::program::ID,
+            false,
+        ));
     }
 
     let ix = solana_sdk::instruction::Instruction::new_with_bytes(
@@ -404,7 +408,7 @@ pub async fn get_all_pdas_available(
 
     let config = RpcProgramAccountsConfig {
         filters: Some(filter),
-        account_config: solana_client::rpc_config::RpcAccountInfoConfig {
+        account_config: RpcAccountInfoConfig {
             encoding: Some(UiAccountEncoding::Base64),
             data_slice: None,
             commitment: Some(CommitmentConfig {
@@ -413,6 +417,7 @@ pub async fn get_all_pdas_available(
             min_context_slot: None,
         },
         with_context: None,
+        sort_results: None,
     };
 
     let accounts = client.get_program_accounts_with_config(&OTTER_VERIFY_PROGRAM_ID, config)?;
