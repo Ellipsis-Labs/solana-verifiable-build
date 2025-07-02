@@ -2,7 +2,7 @@
 
 use reqwest::Client;
 use serde::Deserialize;
-use solana_client::rpc_client::RpcClient;
+use solana_rpc_client::rpc_client::RpcClient;
 use std::error::Error;
 
 #[derive(Deserialize)]

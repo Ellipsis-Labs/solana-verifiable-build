@@ -12,13 +12,11 @@ use signal_hook::{
     iterator::Signals,
 };
 use solana_cli_config::{Config, CONFIG_FILE};
-use solana_client::rpc_client::RpcClient;
+use solana_loader_v3_interface::{get_program_data_address, state::UpgradeableLoaderState};
 use solana_program::get_address_from_keypair_or_config;
-use solana_sdk::{
-    bpf_loader_upgradeable::{self, UpgradeableLoaderState},
-    pubkey::Pubkey,
-};
-use solana_transaction_status::UiTransactionEncoding;
+use solana_rpc_client::rpc_client::RpcClient;
+use solana_sdk::pubkey::Pubkey;
+use solana_transaction_status_client_types::UiTransactionEncoding;
 use std::{
     io::Read,
     path::PathBuf,
@@ -670,8 +668,7 @@ pub fn get_program_hash(client: &RpcClient, program_id: Pubkey) -> anyhow::Resul
         return Err(anyhow!("Program {} is not deployed", program_id));
     }
 
-    let program_buffer =
-        Pubkey::find_program_address(&[program_id.as_ref()], &bpf_loader_upgradeable::id()).0;
+    let program_buffer = get_program_data_address(&program_id);
 
     // Then check if the program data account exists
     match client.get_account_data(&program_buffer) {
@@ -1033,8 +1030,7 @@ pub fn verify_from_image(
 
     let executable_hash: String = get_file_hash(program_filepath.as_str())?;
     let client = get_client(network);
-    let program_buffer =
-        Pubkey::find_program_address(&[program_id.as_ref()], &bpf_loader_upgradeable::id()).0;
+    let program_buffer = get_program_data_address(&program_id);
     let offset = UpgradeableLoaderState::size_of_programdata_metadata();
     let account_data = &client.get_account_data(&program_buffer)?[offset..];
     let program_hash = get_binary_hash(account_data.to_vec());

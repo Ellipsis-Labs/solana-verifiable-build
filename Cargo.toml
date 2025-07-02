@@ -17,22 +17,25 @@ hex = "0.4.3"
 indicatif = "0.17.7"
 lazy_static = "1.4.0"
 pathdiff = "0.2.0" # missing in workspace
-reqwest = "0.11.23"
+reqwest = { version = "0.11.23", features = ["json"] }
 regex = "1.11.1"
 serde = { version = "1.0.195", features = ["derive"] }
 serde_json = "1.0.111"
 sha256 = "1.1.1" # missing in workspace
 signal-hook = "0.3.17"
-solana-clap-utils = "=1.18.23"
-solana-cli-config = "=1.18.23"
-solana-client = "=1.18.23"
-solana-sdk = "=1.18.23"
+solana-clap-utils = "=2.3.1"
+solana-cli-config = "=2.3.1"
+solana-sdk = "=2.3.1"
+solana-account-decoder-client-types = "=2.3.1"
+solana-rpc-client = "=2.3.1"
+solana-rpc-client-api = "=2.3.1"
+solana-transaction-status-client-types = "=2.3.1"
+solana-loader-v3-interface = "5.0.0"
+solana-system-interface = "1.0.0"
 tokio = { version = "1.29.1", features = ["full"] }
-solana-account-decoder = "1.18.23"
 bincode = "1.3.3"
 bs58 = "0.5.1"
 base64 = "0.22.1"
-solana-transaction-status = "=1.18.23"
 
 [dependencies.uuid]
 version = "1.2.2"
