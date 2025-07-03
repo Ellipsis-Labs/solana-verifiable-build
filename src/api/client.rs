@@ -99,7 +99,7 @@ pub async fn send_job_with_uploader_to_remote(
     if genesis_hash != MAINNET_GENESIS_HASH {
         return Err(anyhow!("Remote verification only works with mainnet. Please omit the --remote flag to verify locally."));
     }
-    get_program_pda(connection, program_id, Some(uploader.to_string())).await?;
+    get_program_pda(connection, program_id, Some(uploader.to_string()), None).await?;
 
     let client = Client::builder()
         .timeout(Duration::from_secs(18000))

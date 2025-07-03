@@ -98,11 +98,16 @@ fn get_keypair_from_path(path: &str) -> anyhow::Result<Keypair> {
         .map_err(|err| anyhow!("Unable to get signer from path: {}", err))
 }
 
-fn get_user_config() -> anyhow::Result<(Keypair, RpcClient)> {
-    let config_file = solana_cli_config::CONFIG_FILE
-        .as_ref()
-        .ok_or_else(|| anyhow!("Unable to get config file path"))?;
-    let cli_config: Config = Config::load(config_file)?;
+fn get_user_config_with_path(config_path: Option<String>) -> anyhow::Result<(Keypair, RpcClient)> {
+    let cli_config: Config = match config_path {
+        Some(config_file) => Config::load(&config_file)?,
+        None => {
+            let config_file = solana_cli_config::CONFIG_FILE
+                .as_ref()
+                .ok_or_else(|| anyhow!("Unable to get config file path"))?;
+            Config::load(config_file)?
+        }
+    };
 
     let signer = get_keypair_from_path(&cli_config.keypair_path)?;
 
@@ -155,6 +160,7 @@ pub fn compose_transaction(
     Transaction::new_unsigned(message)
 }
 
+#[allow(clippy::too_many_arguments)]
 fn process_otter_verify_ixs(
     params: &InputParams,
     pda_account: Pubkey,
@@ -163,8 +169,9 @@ fn process_otter_verify_ixs(
     rpc_client: &RpcClient,
     path_to_keypair: Option<String>,
     compute_unit_price: u64,
+    config_path: Option<String>,
 ) -> anyhow::Result<()> {
-    let user_config = get_user_config()?;
+    let user_config = get_user_config_with_path(config_path)?;
     let signer = if let Some(path_to_keypair) = path_to_keypair {
         get_keypair_from_path(&path_to_keypair)?
     } else {
@@ -193,7 +200,10 @@ fn process_otter_verify_ixs(
     Ok(())
 }
 
-pub fn resolve_rpc_url(url: Option<String>) -> anyhow::Result<RpcClient> {
+pub fn resolve_rpc_url(
+    url: Option<String>,
+    config_path: Option<String>,
+) -> anyhow::Result<RpcClient> {
     let connection = match url.as_deref() {
         Some("m") | Some("mainnet") | Some("main") => {
             RpcClient::new("https://api.mainnet-beta.solana.com")
@@ -205,7 +215,7 @@ pub fn resolve_rpc_url(url: Option<String>) -> anyhow::Result<RpcClient> {
         Some("l") | Some("localhost") | Some("local") => RpcClient::new("http://localhost:8899"),
         Some(url) => RpcClient::new(url),
         None => {
-            if let Ok(cli_config) = get_user_config() {
+            if let Ok(cli_config) = get_user_config_with_path(config_path) {
                 cli_config.1
             } else {
                 RpcClient::new("https://api.mainnet-beta.solana.com")
@@ -218,11 +228,12 @@ pub fn resolve_rpc_url(url: Option<String>) -> anyhow::Result<RpcClient> {
 
 pub fn get_address_from_keypair_or_config(
     path_to_keypair: Option<&String>,
+    config_path: Option<String>,
 ) -> anyhow::Result<Pubkey> {
     if let Some(path_to_keypair) = path_to_keypair {
         Ok(get_keypair_from_path(path_to_keypair)?.pubkey())
     } else {
-        Ok(get_user_config()?.0.pubkey())
+        Ok(get_user_config_with_path(config_path)?.0.pubkey())
     }
 }
 
@@ -236,6 +247,7 @@ pub async fn upload_program_verification_data(
     skip_prompt: bool,
     path_to_keypair: Option<String>,
     compute_unit_price: u64,
+    config_path: Option<String>,
 ) -> anyhow::Result<()> {
     if skip_prompt
         || prompt_user_input(
@@ -244,7 +256,8 @@ pub async fn upload_program_verification_data(
     {
         println!("Uploading the program verification params to the Solana blockchain...");
 
-        let signer_pubkey: Pubkey = get_address_from_keypair_or_config(path_to_keypair.as_ref())?;
+        let signer_pubkey: Pubkey =
+            get_address_from_keypair_or_config(path_to_keypair.as_ref(), config_path.clone())?;
 
         // let rpc_url = connection.url();
         println!("Using connection url: {}", connection.url());
@@ -278,6 +291,7 @@ pub async fn upload_program_verification_data(
                 connection,
                 path_to_keypair,
                 compute_unit_price,
+                config_path.clone(),
             )?;
         } else if connection.get_account(&pda_account_2).is_ok() {
             let wanna_create_new_pda = skip_prompt || prompt_user_input(
@@ -292,6 +306,7 @@ pub async fn upload_program_verification_data(
                     connection,
                     path_to_keypair,
                     compute_unit_price,
+                    config_path.clone(),
                 )?;
             }
             return Ok(());
@@ -305,6 +320,7 @@ pub async fn upload_program_verification_data(
                 connection,
                 path_to_keypair,
                 compute_unit_price,
+                config_path.clone(),
             )?;
         }
     } else {
@@ -323,8 +339,9 @@ pub async fn process_close(
     program_address: Pubkey,
     connection: &RpcClient,
     compute_unit_price: u64,
+    config_path: Option<String>,
 ) -> anyhow::Result<()> {
-    let user_config = get_user_config()?;
+    let user_config = get_user_config_with_path(config_path.clone())?;
     let signer = user_config.0;
     let signer_pubkey = signer.pubkey();
 
@@ -349,6 +366,7 @@ pub async fn process_close(
             connection,
             None,
             compute_unit_price,
+            config_path,
         )?;
     } else {
         return Err(anyhow!(
@@ -366,11 +384,12 @@ pub async fn get_program_pda(
     client: &RpcClient,
     program_id: &Pubkey,
     signer_pubkey: Option<String>,
+    config_path: Option<String>,
 ) -> anyhow::Result<(Pubkey, OtterBuildParams)> {
     let signer_pubkey = if let Some(signer_pubkey) = signer_pubkey {
         Pubkey::from_str(&signer_pubkey)?
     } else {
-        get_user_config()?.0.pubkey()
+        get_user_config_with_path(config_path)?.0.pubkey()
     };
 
     let pda = find_build_params_pda(program_id, &signer_pubkey).0;
