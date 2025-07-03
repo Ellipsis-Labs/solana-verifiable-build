@@ -100,7 +100,7 @@ fn get_keypair_from_path(path: &str) -> anyhow::Result<Keypair> {
 
 fn get_user_config_with_path(config_path: Option<String>) -> anyhow::Result<(Keypair, RpcClient)> {
     let cli_config: Config = match config_path {
-        Some(config_file) => Config::load(&config_file)?,
+        Some(config_file) => Config::load(&config_file).map_err(|err| anyhow!("Failed to load Solana CLI configuration file '{}'.\nError: {}", config_file, err))?,
         None => {
             let config_file = solana_cli_config::CONFIG_FILE
                 .as_ref()
