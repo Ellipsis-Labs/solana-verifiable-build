@@ -38,8 +38,8 @@ mod test;
 
 use crate::solana_program::{
     compose_transaction, find_build_params_pda, get_all_pdas_available, get_program_pda,
-    process_close, resolve_rpc_url, upload_program_verification_data, InputParams,
-    OtterBuildParams, OtterVerifyInstructions,
+    process_close, resolve_rpc_url, upload_program_verification_data, validate_config_and_keypair,
+    InputParams, OtterBuildParams, OtterVerifyInstructions,
 };
 
 const MAINNET_GENESIS_HASH: &str = "5eykt4UsFv8P8NJdTREpY1vzqKqZKvdpKuc147dw2N9d";
@@ -352,9 +352,21 @@ async fn main() -> anyhow::Result<()> {
         )
         .get_matches();
 
+    // Validate configuration early if custom config is provided
+    let config_path = matches.value_of("config").map(|s| s.to_string());
+    if config_path.is_some() {
+        // Check if verify-from-repo subcommand has a keypair parameter
+        let keypair_path = if let ("verify-from-repo", Some(sub_m)) = matches.subcommand() {
+            sub_m.value_of("keypair").map(|s| s.to_string())
+        } else {
+            None
+        };
+        validate_config_and_keypair(config_path.as_deref(), keypair_path.as_deref())?;
+    }
+
     let connection = resolve_rpc_url(
         matches.value_of("url").map(|s| s.to_string()),
-        matches.value_of("config").map(|s| s.to_string()),
+        config_path.clone(),
     )?;
     let res = match matches.subcommand() {
         ("build", Some(sub_m)) => {
@@ -385,7 +397,7 @@ async fn main() -> anyhow::Result<()> {
                 executable_path.to_string(),
                 image.to_string(),
                 matches.value_of("url").map(|s| s.to_string()),
-                matches.value_of("config").map(|s| s.to_string()),
+                config_path.clone(),
                 Pubkey::try_from(program_id)?,
                 current_dir,
                 &mut temp_dir,
@@ -458,7 +470,7 @@ async fn main() -> anyhow::Result<()> {
                 &mut container_id,
                 &mut temp_dir,
                 &check_signal,
-                matches.value_of("config").map(|s| s.to_string()),
+                config_path.clone(),
             )
             .await
         }
@@ -473,7 +485,7 @@ async fn main() -> anyhow::Result<()> {
                 Pubkey::try_from(program_id)?,
                 &connection,
                 compute_unit_price,
-                matches.value_of("config").map(|s| s.to_string()),
+                config_path.clone(),
             )
             .await
         }
@@ -510,7 +522,7 @@ async fn main() -> anyhow::Result<()> {
 
             let connection = resolve_rpc_url(
                 matches.value_of("url").map(|s| s.to_string()),
-                matches.value_of("config").map(|s| s.to_string()),
+                config_path.clone(),
             )?;
             println!("Using connection url: {}", connection.url());
 
@@ -542,7 +554,7 @@ async fn main() -> anyhow::Result<()> {
                 Pubkey::try_from(program_id)?,
                 signer,
                 &connection,
-                matches.value_of("config").map(|s| s.to_string()),
+                config_path.clone(),
             )
             .await
         }

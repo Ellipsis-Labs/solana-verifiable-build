@@ -100,7 +100,13 @@ fn get_keypair_from_path(path: &str) -> anyhow::Result<Keypair> {
 
 fn get_user_config_with_path(config_path: Option<String>) -> anyhow::Result<(Keypair, RpcClient)> {
     let cli_config: Config = match config_path {
-        Some(config_file) => Config::load(&config_file).map_err(|err| anyhow!("Failed to load Solana CLI configuration file '{}'.\nError: {}", config_file, err))?,
+        Some(config_file) => Config::load(&config_file).map_err(|err| {
+            anyhow!(
+                "Failed to load Solana CLI configuration file '{}'.\nError: {}",
+                config_file,
+                err
+            )
+        })?,
         None => {
             let config_file = solana_cli_config::CONFIG_FILE
                 .as_ref()
@@ -113,6 +119,35 @@ fn get_user_config_with_path(config_path: Option<String>) -> anyhow::Result<(Key
 
     let rpc_client = RpcClient::new(cli_config.json_rpc_url.clone());
     Ok((signer, rpc_client))
+}
+
+/// Validates configuration and keypair early to avoid late failures
+pub fn validate_config_and_keypair(
+    config_path: Option<&str>,
+    path_to_keypair: Option<&str>,
+) -> anyhow::Result<()> {
+    // Validate the config file if provided
+    if let Some(config_file) = config_path {
+        let cli_config = Config::load(config_file).map_err(|err| {
+            anyhow!(
+                "Failed to load Solana CLI configuration file '{}'.\nError: {}",
+                config_file,
+                err
+            )
+        })?;
+
+        // If no explicit keypair path provided, validate the one from config
+        if path_to_keypair.is_none() {
+            let _ = get_keypair_from_path(&cli_config.keypair_path)?;
+        }
+    }
+
+    // Validate the explicit keypair path if provided
+    if let Some(keypair_path) = path_to_keypair {
+        let _ = get_keypair_from_path(keypair_path)?;
+    }
+
+    Ok(())
 }
 
 pub fn compose_transaction(
