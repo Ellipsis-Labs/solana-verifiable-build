@@ -38,8 +38,8 @@ mod test;
 
 use crate::solana_program::{
     compose_transaction, find_build_params_pda, get_all_pdas_available, get_program_pda,
-    process_close, resolve_rpc_url, upload_program_verification_data, InputParams,
-    OtterBuildParams, OtterVerifyInstructions,
+    process_close, resolve_rpc_url, upload_program_verification_data, validate_config_and_keypair,
+    InputParams, OtterBuildParams, OtterVerifyInstructions,
 };
 
 const MAINNET_GENESIS_HASH: &str = "5eykt4UsFv8P8NJdTREpY1vzqKqZKvdpKuc147dw2N9d";
@@ -122,6 +122,12 @@ async fn main() -> anyhow::Result<()> {
             .takes_value(true)
             .default_value("100000")
             .help("Priority fee in micro-lamports per compute unit"))
+        .arg(Arg::with_name("config")
+            .short("c")
+            .long("config")
+            .global(true)
+            .takes_value(true)
+            .help("Specify a custom configuration file path"))
         .subcommand(SubCommand::with_name("build")
             .about("Deterministically build the program in a Docker container")
             .arg(Arg::with_name("mount-directory")
@@ -346,7 +352,22 @@ async fn main() -> anyhow::Result<()> {
         )
         .get_matches();
 
-    let connection = resolve_rpc_url(matches.value_of("url").map(|s| s.to_string()))?;
+    // Validate configuration early if custom config is provided
+    let config_path = matches.value_of("config").map(|s| s.to_string());
+    if config_path.is_some() {
+        // Check if verify-from-repo subcommand has a keypair parameter
+        let keypair_path = if let ("verify-from-repo", Some(sub_m)) = matches.subcommand() {
+            sub_m.value_of("keypair").map(|s| s.to_string())
+        } else {
+            None
+        };
+        validate_config_and_keypair(config_path.as_deref(), keypair_path.as_deref())?;
+    }
+
+    let connection = resolve_rpc_url(
+        matches.value_of("url").map(|s| s.to_string()),
+        config_path.clone(),
+    )?;
     let res = match matches.subcommand() {
         ("build", Some(sub_m)) => {
             let mount_directory = sub_m.value_of("mount-directory").map(|s| s.to_string());
@@ -376,6 +397,7 @@ async fn main() -> anyhow::Result<()> {
                 executable_path.to_string(),
                 image.to_string(),
                 matches.value_of("url").map(|s| s.to_string()),
+                config_path.clone(),
                 Pubkey::try_from(program_id)?,
                 current_dir,
                 &mut temp_dir,
@@ -448,6 +470,7 @@ async fn main() -> anyhow::Result<()> {
                 &mut container_id,
                 &mut temp_dir,
                 &check_signal,
+                config_path.clone(),
             )
             .await
         }
@@ -462,6 +485,7 @@ async fn main() -> anyhow::Result<()> {
                 Pubkey::try_from(program_id)?,
                 &connection,
                 compute_unit_price,
+                config_path.clone(),
             )
             .await
         }
@@ -496,7 +520,10 @@ async fn main() -> anyhow::Result<()> {
                 .map(|s| s.to_string())
                 .collect();
 
-            let connection = resolve_rpc_url(matches.value_of("url").map(|s| s.to_string()))?;
+            let connection = resolve_rpc_url(
+                matches.value_of("url").map(|s| s.to_string()),
+                config_path.clone(),
+            )?;
             println!("Using connection url: {}", connection.url());
 
             export_pda_tx(
@@ -523,7 +550,13 @@ async fn main() -> anyhow::Result<()> {
         ("get-program-pda", Some(sub_m)) => {
             let program_id = sub_m.value_of("program-id").unwrap();
             let signer = sub_m.value_of("signer").map(|s| s.to_string());
-            print_program_pda(Pubkey::try_from(program_id)?, signer, &connection).await
+            print_program_pda(
+                Pubkey::try_from(program_id)?,
+                signer,
+                &connection,
+                config_path.clone(),
+            )
+            .await
         }
         ("remote", Some(sub_m)) => match sub_m.subcommand() {
             ("get-status", Some(sub_m)) => {
@@ -558,13 +591,19 @@ async fn main() -> anyhow::Result<()> {
     res
 }
 
-pub fn get_client(url: Option<String>) -> RpcClient {
-    let config = match CONFIG_FILE.as_ref() {
-        Some(config_file) => Config::load(config_file).unwrap_or_else(|_| {
+pub fn get_client(url: Option<String>, config_path: Option<String>) -> RpcClient {
+    let config = match config_path {
+        Some(config_file) => Config::load(&config_file).unwrap_or_else(|_| {
             println!("Failed to load config file: {}", config_file);
             Config::default()
         }),
-        None => Config::default(),
+        None => match CONFIG_FILE.as_ref() {
+            Some(config_file) => Config::load(config_file).unwrap_or_else(|_| {
+                println!("Failed to load config file: {}", config_file);
+                Config::default()
+            }),
+            None => Config::default(),
+        },
     };
     let url = &get_network(&url.unwrap_or(config.json_rpc_url)).to_string();
     RpcClient::new(url)
@@ -577,11 +616,17 @@ fn get_commit_hash_from_remote(repo_url: &str) -> anyhow::Result<String> {
         .arg("--symref")
         .arg(repo_url)
         .output()
-        .map_err(|e| anyhow::anyhow!("Failed to run git ls-remote: {}", e))?;
+        .map_err(|e| {
+            anyhow::anyhow!(
+                "Failed to fetch repository information using git.\nError: {}",
+                e
+            )
+        })?;
 
     if !output.status.success() {
         return Err(anyhow::anyhow!(
-            "Failed to fetch default branch information: {}",
+            "Failed to fetch default branch information from repository '{}'.\nGit error: {}",
+            repo_url,
             String::from_utf8_lossy(&output.stderr)
         ));
     }
@@ -604,7 +649,7 @@ fn get_commit_hash_from_remote(repo_url: &str) -> anyhow::Result<String> {
         })
         .ok_or_else(|| {
             anyhow::anyhow!(
-                "Unable to determine default branch from remote repository '{}'",
+                "Unable to determine default branch from repository '{}'",
                 repo_url
             )
         })?;
@@ -617,11 +662,13 @@ fn get_commit_hash_from_remote(repo_url: &str) -> anyhow::Result<String> {
         .arg(repo_url)
         .arg(&default_branch)
         .output()
-        .map_err(|e| anyhow::anyhow!("Failed to fetch commit hash for default branch: {}", e))?;
+        .map_err(|e| anyhow::anyhow!("Failed to fetch commit hash for default branch '{}' from repository '{}'.\nError: {}", default_branch, repo_url, e))?;
 
     if !hash_output.status.success() {
         return Err(anyhow::anyhow!(
-            "Failed to fetch commit hash: {}",
+            "Failed to fetch commit hash for branch '{}' from repository '{}'.\nGit error: {}",
+            default_branch,
+            repo_url,
             String::from_utf8_lossy(&hash_output.stderr)
         ));
     }
@@ -655,7 +702,7 @@ pub fn get_file_hash(filepath: &str) -> Result<String, std::io::Error> {
 }
 
 pub fn get_buffer_hash(url: Option<String>, buffer_address: Pubkey) -> anyhow::Result<String> {
-    let client = get_client(url);
+    let client = get_client(url, None);
     let offset = UpgradeableLoaderState::size_of_buffer_metadata();
     let account_data = client.get_account_data(&buffer_address)?[offset..].to_vec();
     let program_hash = get_binary_hash(account_data);
@@ -753,7 +800,7 @@ pub fn build(
     let lockfile = format!("{}/Cargo.lock", mount_path);
     if !std::path::Path::new(&lockfile).exists() {
         println!("Mount directory must contain a Cargo.lock file");
-        return Err(anyhow!(format!("No lockfile found at {}", lockfile)));
+        return Err(anyhow!("Missing Cargo.lock file at '{}'", lockfile));
     }
 
     // Check if --offline flag is present in cargo_args
@@ -781,10 +828,12 @@ pub fn build(
                 solana_version = Some(format!("v{}.{}.{}", major, minor, patch));
                 format!("solanafoundation/solana-verifiable-build@{}", digest)
             } else {
-                return Err(anyhow!(format!(
-                    "Unable to find docker image for Solana version {}.{}.{}",
-                    major, minor, patch
-                )));
+                return Err(anyhow!(
+                    "No compatible Docker image found for Solana version {}.{}.{}",
+                    major,
+                    minor,
+                    patch
+                ));
             }
         }
     };
@@ -821,7 +870,9 @@ pub fn build(
                     }
                 }
             }
-            Err(anyhow!("No Cargo.toml files found"))
+            Err(anyhow!(
+                "No valid Cargo.toml files found in the project directory"
+            ))
         })
         .unwrap_or_else(|_| "".to_string());
 
@@ -829,7 +880,7 @@ pub fn build(
         .args(["run", "--rm", &image, "pwd"])
         .stderr(Stdio::inherit())
         .output()
-        .map_err(|e| anyhow::format_err!("Failed to get workdir: {}", e.to_string()))
+        .map_err(|e| anyhow::format_err!("Failed to get working directory : {}", e.to_string()))
         .and_then(parse_output)?;
 
     println!("Workdir: {}", workdir);
@@ -867,7 +918,7 @@ pub fn build(
         let output = cmd
             .args([&image, "bash"])
             .output()
-            .map_err(|e| anyhow!("Docker build failed: {}", e.to_string()))?;
+            .map_err(|e| anyhow!("Failed to start Docker container : {}", e.to_string()))?;
 
         parse_output(output)?
     };
@@ -951,10 +1002,12 @@ pub fn build(
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn verify_from_image(
     executable_path: String,
     image: String,
     network: Option<String>,
+    config_path: Option<String>,
     program_id: Pubkey,
     current_dir: bool,
     temp_dir: &mut Option<String>,
@@ -971,7 +1024,7 @@ pub fn verify_from_image(
         .args(["run", "--rm", &image, "pwd"])
         .stderr(Stdio::inherit())
         .output()
-        .map_err(|e| anyhow::format_err!("Failed to get workdir: {}", e.to_string()))
+        .map_err(|e| anyhow::format_err!("Failed to get working directory : {}", e.to_string()))
         .and_then(parse_output)?;
 
     println!("Workdir: {}", workdir);
@@ -991,7 +1044,7 @@ pub fn verify_from_image(
         let output = cmd
             .args([&image])
             .output()
-            .map_err(|e| anyhow!("Docker build failed: {}", e.to_string()))?;
+            .map_err(|e| anyhow!("Failed to start Docker container : {}", e.to_string()))?;
         parse_output(output)?
     };
 
@@ -1029,7 +1082,7 @@ pub fn verify_from_image(
     ensure!(output.status.success(), "Failed to copy executable file");
 
     let executable_hash: String = get_file_hash(program_filepath.as_str())?;
-    let client = get_client(network);
+    let client = get_client(network, config_path);
     let program_buffer = get_program_data_address(&program_id);
     let offset = UpgradeableLoaderState::size_of_programdata_metadata();
     let account_data = &client.get_account_data(&program_buffer)?[offset..];
@@ -1091,7 +1144,7 @@ fn build_args(
                     )
                 })
                 .and_then(|output| {
-                    ensure!(output.status.success(), "Failed to find Cargo.toml files in root directory");
+                    ensure!(output.status.success(), "Failed to search for Cargo.toml in root directory");
                     let mut options = vec![];
                     for path in String::from_utf8(output.stdout)?.split("\n") {
                         match get_lib_name_from_cargo_toml(path) {
@@ -1112,7 +1165,8 @@ fn build_args(
                             "Please explicitly specify the target with the --library-name <name> option",
                         );
                         Err(anyhow::format_err!(
-                            "Failed to find unique Cargo.toml file in root directory"
+                            "Multiple library targets found: {:?}",
+                            options
                         ))
                     } else {
                         Ok(options[0].clone())
@@ -1175,7 +1229,8 @@ fn clone_repo_and_checkout(
         .output()?;
     ensure!(
         output.status.success(),
-        "Failed to git clone the repository"
+        "Failed to clone repository '{}'",
+        repo_url
     );
 
     if let Some(commit_hash) = commit_hash.as_ref() {
@@ -1183,7 +1238,7 @@ fn clone_repo_and_checkout(
             .args(["-C", &verify_tmp_root_path])
             .args(["checkout", commit_hash])
             .output()
-            .map_err(|e| anyhow!("Failed to checkout commit hash: {:?}", e))?;
+            .map_err(|e| anyhow!("Failed to checkout commit hash '{}' : {:?}", commit_hash, e))?;
         if output.status.success() {
             println!("Checked out commit hash: {}", commit_hash);
         } else {
@@ -1192,10 +1247,13 @@ fn clone_repo_and_checkout(
                 .output()?;
             ensure!(
                 output.status.success(),
-                "Failed to delete the verifiable build directory"
+                "Failed to clean up temporary directory"
             );
 
-            Err(anyhow!("Encountered error in git setup"))?;
+            Err(anyhow!(
+                "Git checkout failed for commit hash '{}'",
+                commit_hash
+            ))?;
         }
     }
 
@@ -1206,7 +1264,13 @@ fn get_basename(repo_url: &str) -> anyhow::Result<String> {
     let base_name = std::process::Command::new("basename")
         .arg(repo_url)
         .output()
-        .map_err(|e| anyhow!("Failed to get basename of repo_url: {:?}", e))
+        .map_err(|e| {
+            anyhow!(
+                "Failed to extract repository name from URL '{}' : {:?}",
+                repo_url,
+                e
+            )
+        })
         .and_then(parse_output)?;
     Ok(base_name)
 }
@@ -1231,6 +1295,7 @@ pub async fn verify_from_repo(
     container_id_opt: &mut Option<String>,
     temp_dir_opt: &mut Option<String>,
     check_signal: &dyn Fn(&mut Option<String>, &mut Option<String>),
+    config_path: Option<String>,
 ) -> anyhow::Result<()> {
     // Set skip_build to true if remote is true
     skip_build |= remote;
@@ -1307,6 +1372,7 @@ pub async fn verify_from_repo(
                     skip_prompt,
                     path_to_keypair.clone(),
                     compute_unit_price,
+                    config_path.clone(),
                 )
                 .await?;
 
@@ -1317,7 +1383,10 @@ pub async fn verify_from_repo(
                         return Err(anyhow!("Remote verification only works with mainnet. Please omit the --remote flag to verify locally."));
                     }
 
-                    let uploader = get_address_from_keypair_or_config(path_to_keypair.as_ref())?;
+                    let uploader = get_address_from_keypair_or_config(
+                        path_to_keypair.as_ref(),
+                        config_path.clone(),
+                    )?;
                     println!(
                         "Sending verify command to remote machine with uploader: {}",
                         &uploader
@@ -1462,8 +1531,9 @@ pub async fn print_program_pda(
     program_id: Pubkey,
     signer: Option<String>,
     client: &RpcClient,
+    config_path: Option<String>,
 ) -> anyhow::Result<()> {
-    let (pda, build_params) = get_program_pda(client, &program_id, signer).await?;
+    let (pda, build_params) = get_program_pda(client, &program_id, signer, config_path).await?;
     print_build_params(&pda, &build_params);
     Ok(())
 }
