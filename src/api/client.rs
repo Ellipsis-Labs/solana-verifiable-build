@@ -97,7 +97,7 @@ pub async fn send_job_with_uploader_to_remote(
     // Check that PDA exists before sending job
     let genesis_hash = get_genesis_hash(connection)?;
     if genesis_hash != MAINNET_GENESIS_HASH {
-        return Err(anyhow!("Remote verification only works with mainnet. Please omit the --remote flag to verify locally."));
+        return Err(anyhow!("Remote verification service only supports mainnet. You're currently connected to a different network.\n\nTo use remote verification:\n• Connect to mainnet with: --url mainnet\n• Or remove the --remote flag to verify locally"));
     }
     get_program_pda(connection, program_id, Some(uploader.to_string()), None).await?;
 

@@ -95,7 +95,7 @@ fn create_ix_data(params: &InputParams, ix: &OtterVerifyInstructions) -> Vec<u8>
 
 fn get_keypair_from_path(path: &str) -> anyhow::Result<Keypair> {
     solana_clap_utils::keypair::keypair_from_path(&Default::default(), path, "keypair", false)
-        .map_err(|err| anyhow!("Unable to get signer from path: {}", err))
+        .map_err(|err| anyhow!("Failed to load keypair from path '{}'. Please check that the file exists and contains a valid Solana keypair.\nError: {}", path, err))
 }
 
 fn get_user_config_with_path(config_path: Option<String>) -> anyhow::Result<(Keypair, RpcClient)> {
@@ -104,7 +104,7 @@ fn get_user_config_with_path(config_path: Option<String>) -> anyhow::Result<(Key
         None => {
             let config_file = solana_cli_config::CONFIG_FILE
                 .as_ref()
-                .ok_or_else(|| anyhow!("Unable to get config file path"))?;
+                .ok_or_else(|| anyhow!("Could not find Solana CLI configuration file. Please run 'solana config set --url <rpc-url>' to set up your configuration, or specify a custom config file with --config."))?;
             Config::load(config_file)?
         }
     };
@@ -194,7 +194,7 @@ fn process_otter_verify_ixs(
         .send_and_confirm_transaction_with_spinner(&tx)
         .map_err(|err| {
             println!("{:?}", err);
-            anyhow!("Failed to send transaction to the network.")
+            anyhow!("Failed to send verification transaction to the blockchain.")
         })?;
     println!("Program uploaded successfully. Transaction ID: {}", tx_id);
     Ok(())
@@ -264,7 +264,13 @@ pub async fn upload_program_verification_data(
 
         let last_deployed_slot = get_last_deployed_slot(connection, &program_address.to_string())
             .await
-            .map_err(|err| anyhow!("Unable to get last deployed slot: {}", err))?;
+            .map_err(|err| {
+                anyhow!(
+                    "Failed to retrieve deployment information for program {}.\nError: {}",
+                    program_address.to_string(),
+                    err
+                )
+            })?;
 
         let input_params = InputParams {
             version: env!("CARGO_PKG_VERSION").to_string(),
@@ -347,7 +353,13 @@ pub async fn process_close(
 
     let last_deployed_slot = get_last_deployed_slot(connection, &program_address.to_string())
         .await
-        .map_err(|err| anyhow!("Unable to get last deployed slot: {}", err))?;
+        .map_err(|err| {
+            anyhow!(
+                "Failed to retrieve deployment information for program {}.\nError: {}",
+                program_address.to_string(),
+                err
+            )
+        })?;
 
     let pda_account = find_build_params_pda(&program_address, &signer_pubkey).0;
 
@@ -370,10 +382,9 @@ pub async fn process_close(
         )?;
     } else {
         return Err(anyhow!(
-            "No PDA found for signer {:?} and program address {:?}. Make sure you are providing the program address, not the PDA address. Check that a signer exists for the program by running `solana-verify list-program-pdas --program-id {:?}`",
-            signer_pubkey,
+            "No verification data found for program {} with signer {}",
             program_address,
-            program_address
+            signer_pubkey
         ));
     }
 
@@ -404,12 +415,17 @@ pub async fn get_program_pda(
     if let Some(account) = account.value {
         Ok((
             pda,
-            OtterBuildParams::try_from_slice(&account.data[8..])
-                .map_err(|err| anyhow!("Unable to parse build params: {}", err))?,
+            OtterBuildParams::try_from_slice(&account.data[8..]).map_err(|err| {
+                anyhow!(
+                    "Failed to parse verification data for program {} : {}",
+                    program_id,
+                    err
+                )
+            })?,
         ))
     } else {
         Err(anyhow!(
-            "PDA not found for {:?} and uploader {:?}. Make sure you've uploaded the PDA to mainnet.",
+            "Verification PDA not found for {:?} and uploader {:?}. Make sure you've uploaded the PDA to mainnet.",
             program_id,
             signer_pubkey
         ))

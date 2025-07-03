@@ -604,11 +604,17 @@ fn get_commit_hash_from_remote(repo_url: &str) -> anyhow::Result<String> {
         .arg("--symref")
         .arg(repo_url)
         .output()
-        .map_err(|e| anyhow::anyhow!("Failed to run git ls-remote: {}", e))?;
+        .map_err(|e| {
+            anyhow::anyhow!(
+                "Failed to fetch repository information using git.\nError: {}",
+                e
+            )
+        })?;
 
     if !output.status.success() {
         return Err(anyhow::anyhow!(
-            "Failed to fetch default branch information: {}",
+            "Failed to fetch default branch information from repository '{}'.\nGit error: {}",
+            repo_url,
             String::from_utf8_lossy(&output.stderr)
         ));
     }
@@ -631,7 +637,7 @@ fn get_commit_hash_from_remote(repo_url: &str) -> anyhow::Result<String> {
         })
         .ok_or_else(|| {
             anyhow::anyhow!(
-                "Unable to determine default branch from remote repository '{}'",
+                "Unable to determine default branch from repository '{}'",
                 repo_url
             )
         })?;
@@ -644,11 +650,13 @@ fn get_commit_hash_from_remote(repo_url: &str) -> anyhow::Result<String> {
         .arg(repo_url)
         .arg(&default_branch)
         .output()
-        .map_err(|e| anyhow::anyhow!("Failed to fetch commit hash for default branch: {}", e))?;
+        .map_err(|e| anyhow::anyhow!("Failed to fetch commit hash for default branch '{}' from repository '{}'.\nError: {}", default_branch, repo_url, e))?;
 
     if !hash_output.status.success() {
         return Err(anyhow::anyhow!(
-            "Failed to fetch commit hash: {}",
+            "Failed to fetch commit hash for branch '{}' from repository '{}'.\nGit error: {}",
+            default_branch,
+            repo_url,
             String::from_utf8_lossy(&hash_output.stderr)
         ));
     }
@@ -780,7 +788,7 @@ pub fn build(
     let lockfile = format!("{}/Cargo.lock", mount_path);
     if !std::path::Path::new(&lockfile).exists() {
         println!("Mount directory must contain a Cargo.lock file");
-        return Err(anyhow!(format!("No lockfile found at {}", lockfile)));
+        return Err(anyhow!("Missing Cargo.lock file at '{}'", lockfile));
     }
 
     // Check if --offline flag is present in cargo_args
@@ -808,10 +816,12 @@ pub fn build(
                 solana_version = Some(format!("v{}.{}.{}", major, minor, patch));
                 format!("solanafoundation/solana-verifiable-build@{}", digest)
             } else {
-                return Err(anyhow!(format!(
-                    "Unable to find docker image for Solana version {}.{}.{}",
-                    major, minor, patch
-                )));
+                return Err(anyhow!(
+                    "No compatible Docker image found for Solana version {}.{}.{}",
+                    major,
+                    minor,
+                    patch
+                ));
             }
         }
     };
@@ -848,7 +858,9 @@ pub fn build(
                     }
                 }
             }
-            Err(anyhow!("No Cargo.toml files found"))
+            Err(anyhow!(
+                "No valid Cargo.toml files found in the project directory"
+            ))
         })
         .unwrap_or_else(|_| "".to_string());
 
@@ -856,7 +868,7 @@ pub fn build(
         .args(["run", "--rm", &image, "pwd"])
         .stderr(Stdio::inherit())
         .output()
-        .map_err(|e| anyhow::format_err!("Failed to get workdir: {}", e.to_string()))
+        .map_err(|e| anyhow::format_err!("Failed to get working directory : {}", e.to_string()))
         .and_then(parse_output)?;
 
     println!("Workdir: {}", workdir);
@@ -894,7 +906,7 @@ pub fn build(
         let output = cmd
             .args([&image, "bash"])
             .output()
-            .map_err(|e| anyhow!("Docker build failed: {}", e.to_string()))?;
+            .map_err(|e| anyhow!("Failed to start Docker container : {}", e.to_string()))?;
 
         parse_output(output)?
     };
@@ -1000,7 +1012,7 @@ pub fn verify_from_image(
         .args(["run", "--rm", &image, "pwd"])
         .stderr(Stdio::inherit())
         .output()
-        .map_err(|e| anyhow::format_err!("Failed to get workdir: {}", e.to_string()))
+        .map_err(|e| anyhow::format_err!("Failed to get working directory : {}", e.to_string()))
         .and_then(parse_output)?;
 
     println!("Workdir: {}", workdir);
@@ -1020,7 +1032,7 @@ pub fn verify_from_image(
         let output = cmd
             .args([&image])
             .output()
-            .map_err(|e| anyhow!("Docker build failed: {}", e.to_string()))?;
+            .map_err(|e| anyhow!("Failed to start Docker container : {}", e.to_string()))?;
         parse_output(output)?
     };
 
@@ -1120,7 +1132,7 @@ fn build_args(
                     )
                 })
                 .and_then(|output| {
-                    ensure!(output.status.success(), "Failed to find Cargo.toml files in root directory");
+                    ensure!(output.status.success(), "Failed to search for Cargo.toml in root directory");
                     let mut options = vec![];
                     for path in String::from_utf8(output.stdout)?.split("\n") {
                         match get_lib_name_from_cargo_toml(path) {
@@ -1141,7 +1153,8 @@ fn build_args(
                             "Please explicitly specify the target with the --library-name <name> option",
                         );
                         Err(anyhow::format_err!(
-                            "Failed to find unique Cargo.toml file in root directory"
+                            "Multiple library targets found: {:?}",
+                            options
                         ))
                     } else {
                         Ok(options[0].clone())
@@ -1204,7 +1217,8 @@ fn clone_repo_and_checkout(
         .output()?;
     ensure!(
         output.status.success(),
-        "Failed to git clone the repository"
+        "Failed to clone repository '{}'",
+        repo_url
     );
 
     if let Some(commit_hash) = commit_hash.as_ref() {
@@ -1212,7 +1226,7 @@ fn clone_repo_and_checkout(
             .args(["-C", &verify_tmp_root_path])
             .args(["checkout", commit_hash])
             .output()
-            .map_err(|e| anyhow!("Failed to checkout commit hash: {:?}", e))?;
+            .map_err(|e| anyhow!("Failed to checkout commit hash '{}' : {:?}", commit_hash, e))?;
         if output.status.success() {
             println!("Checked out commit hash: {}", commit_hash);
         } else {
@@ -1221,10 +1235,13 @@ fn clone_repo_and_checkout(
                 .output()?;
             ensure!(
                 output.status.success(),
-                "Failed to delete the verifiable build directory"
+                "Failed to clean up temporary directory"
             );
 
-            Err(anyhow!("Encountered error in git setup"))?;
+            Err(anyhow!(
+                "Git checkout failed for commit hash '{}'",
+                commit_hash
+            ))?;
         }
     }
 
@@ -1235,7 +1252,13 @@ fn get_basename(repo_url: &str) -> anyhow::Result<String> {
     let base_name = std::process::Command::new("basename")
         .arg(repo_url)
         .output()
-        .map_err(|e| anyhow!("Failed to get basename of repo_url: {:?}", e))
+        .map_err(|e| {
+            anyhow!(
+                "Failed to extract repository name from URL '{}' : {:?}",
+                repo_url,
+                e
+            )
+        })
         .and_then(parse_output)?;
     Ok(base_name)
 }
