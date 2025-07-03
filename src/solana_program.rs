@@ -382,9 +382,10 @@ pub async fn process_close(
         )?;
     } else {
         return Err(anyhow!(
-            "No verification data found for program {} with signer {}",
+            "No PDA found for signer {:?} and program address {:?}. Make sure you are providing the program address, not the PDA address. Check that a signer exists for the program by running `solana-verify list-program-pdas --program-id {:?}`",
+            signer_pubkey,
             program_address,
-            signer_pubkey
+            program_address
         ));
     }
 
