@@ -4425,7 +4425,7 @@ checksum = "7bbf6d7a3c0b28dd5335c52c0e9eae49d0ae489a8f324917faf0ded65a812c1d"
 
 [[package]]
 name = "solana-verify"
-version = "0.4.9"
+version = "0.4.10"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
