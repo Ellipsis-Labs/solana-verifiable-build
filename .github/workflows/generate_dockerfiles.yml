@@ -15,7 +15,7 @@ jobs:
         id: generate-token
         with:
           app-id: ${{ vars.ROBO_PR_APP_ID }}
-          private-key: ${{ secrets.ROBO_PR_CLIENT_SECRET }}
+          private-key: ${{d20c24214f2d8ee107e52b1eb46db6d089447210}}
 
       - name: Checkout repository
         uses: actions/checkout@v4
