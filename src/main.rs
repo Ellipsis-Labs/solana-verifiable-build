@@ -363,12 +363,7 @@ async fn main() -> anyhow::Result<()> {
                     .long("uploader")
                     .required(true)
                     .takes_value(true)
-                    .help("This is the address that uploaded verified build information for the program-id"))
-                .arg(Arg::with_name("arch")
-                    .long("arch")
-                    .takes_value(true)
-                    .possible_values(&["v0", "v1", "v2", "v3"])
-                    .help("Build for the given target architecture [default: v0]")))
+                    .help("This is the address that uploaded verified build information for the program-id")))
         )
         .get_matches();
 
@@ -596,13 +591,11 @@ async fn main() -> anyhow::Result<()> {
             ("submit-job", Some(sub_m)) => {
                 let program_id = sub_m.value_of("program-id").unwrap();
                 let uploader = sub_m.value_of("uploader").unwrap();
-                let arch = sub_m.value_of("arch").map(|s| s.to_string());
 
                 send_job_with_uploader_to_remote(
                     &connection,
                     &Pubkey::try_from(program_id)?,
                     &Pubkey::try_from(uploader)?,
-                    arch,
                 )
                 .await
             }
@@ -1440,13 +1433,7 @@ pub async fn verify_from_repo(
                         "\nPlease note that if the desired uploader is not the provided keypair, you will need to run `solana-verify remote submit-job --program-id {} --uploader <uploader-address>.\n",
                         &program_id,
                     );
-                    send_job_with_uploader_to_remote(
-                        connection,
-                        &program_id,
-                        &uploader,
-                        arch.clone(),
-                    )
-                    .await?;
+                    send_job_with_uploader_to_remote(connection, &program_id, &uploader).await?;
                 }
 
                 Ok(())

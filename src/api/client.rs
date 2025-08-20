@@ -93,7 +93,6 @@ pub async fn send_job_with_uploader_to_remote(
     connection: &RpcClient,
     program_id: &Pubkey,
     uploader: &Pubkey,
-    arch: Option<String>,
 ) -> anyhow::Result<()> {
     // Check that PDA exists before sending job
     let genesis_hash = get_genesis_hash(connection)?;
@@ -107,21 +106,14 @@ pub async fn send_job_with_uploader_to_remote(
         .build()?;
 
     // Send the POST request
-    let mut payload = json!({
-        "program_id": program_id.to_string(),
-        "signer": uploader.to_string(),
-        "repository": "",
-        "commit_hash": "",
-    });
-
-    // Add arch parameter if provided
-    if let Some(arch_value) = arch {
-        payload["arch"] = json!(arch_value);
-    }
-
     let response = client
         .post(format!("{}/verify-with-signer", REMOTE_SERVER_URL))
-        .json(&payload)
+        .json(&json!({
+            "program_id": program_id.to_string(),
+            "signer": uploader.to_string(),
+            "repository": "",
+            "commit_hash": "",
+        }))
         .send()
         .await?;
 
