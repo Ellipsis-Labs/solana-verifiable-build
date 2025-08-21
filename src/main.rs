@@ -145,6 +145,11 @@ async fn main() -> anyhow::Result<()> {
             .arg(Arg::with_name("bpf")
                 .long("bpf")
                 .help("If the program requires cargo build-bpf (instead of cargo build-sbf), set this flag"))
+            .arg(Arg::with_name("arch")
+                .long("arch")
+                .takes_value(true)
+                .possible_values(&["v0", "v1", "v2", "v3"])
+                .help("Build for the given target architecture [default: v0]"))
             .arg(Arg::with_name("cargo-args")
                 .multiple(true)
                 .last(true)
@@ -223,6 +228,11 @@ async fn main() -> anyhow::Result<()> {
             .arg(Arg::with_name("bpf")
                 .long("bpf")
                 .help("If the program requires cargo build-bpf (instead of cargo build-sbf), set this flag"))
+            .arg(Arg::with_name("arch")
+                .long("arch")
+                .takes_value(true)
+                .possible_values(&["v0", "v1", "v2", "v3"])
+                .help("Build for the given target architecture [default: v0]"))
             .arg(Arg::with_name("current-dir")
                 .long("current-dir")
                 .help("Verify in current directory"))
@@ -285,6 +295,11 @@ async fn main() -> anyhow::Result<()> {
             .arg(Arg::with_name("bpf")
                 .long("bpf")
                 .help("If the program requires cargo build-bpf (instead of cargo build-sbf), set this flag"))
+            .arg(Arg::with_name("arch")
+                .long("arch")
+                .takes_value(true)
+                .possible_values(&["v0", "v1", "v2", "v3"])
+                .help("Build for the given target architecture [default: v0]"))
             .arg(Arg::with_name("cargo-args")
                 .multiple(true)
                 .last(true)
@@ -374,6 +389,7 @@ async fn main() -> anyhow::Result<()> {
             let library_name = sub_m.value_of("library-name").map(|s| s.to_string());
             let base_image = sub_m.value_of("base-image").map(|s| s.to_string());
             let bpf_flag = sub_m.is_present("bpf");
+            let arch = sub_m.value_of("arch").map(|s| s.to_string());
             let cargo_args = sub_m
                 .values_of("cargo-args")
                 .unwrap_or_default()
@@ -384,6 +400,7 @@ async fn main() -> anyhow::Result<()> {
                 library_name,
                 base_image,
                 bpf_flag,
+                arch,
                 cargo_args,
                 &mut container_id,
             )
@@ -434,6 +451,7 @@ async fn main() -> anyhow::Result<()> {
             let base_image = sub_m.value_of("base-image").map(|s| s.to_string());
             let library_name = sub_m.value_of("library-name").map(|s| s.to_string());
             let bpf_flag = sub_m.is_present("bpf");
+            let arch = sub_m.value_of("arch").map(|s| s.to_string());
             let current_dir = sub_m.is_present("current-dir");
             let skip_prompt = sub_m.is_present("skip-prompt");
             let path_to_keypair = sub_m.value_of("keypair").map(|s| s.to_string());
@@ -461,6 +479,7 @@ async fn main() -> anyhow::Result<()> {
                 base_image,
                 library_name,
                 bpf_flag,
+                arch,
                 cargo_args,
                 current_dir,
                 skip_prompt,
@@ -497,6 +516,7 @@ async fn main() -> anyhow::Result<()> {
             let base_image = sub_m.value_of("base-image").map(|s| s.to_string());
             let library_name = sub_m.value_of("library-name").map(|s| s.to_string());
             let bpf_flag = sub_m.is_present("bpf");
+            let arch = sub_m.value_of("arch").map(|s| s.to_string());
             let encoding = sub_m.value_of("encoding").unwrap();
 
             let encoding: UiTransactionEncoding = match encoding {
@@ -536,6 +556,7 @@ async fn main() -> anyhow::Result<()> {
                 library_name,
                 base_image,
                 bpf_flag,
+                arch,
                 &mut temp_dir,
                 encoding,
                 cargo_args,
@@ -784,6 +805,7 @@ pub fn build(
     library_name: Option<String>,
     base_image: Option<String>,
     bpf_flag: bool,
+    arch: Option<String>,
     cargo_args: Vec<String>,
     container_id_opt: &mut Option<String>,
 ) -> anyhow::Result<()> {
@@ -962,9 +984,16 @@ pub fn build(
         .as_slice()
     };
 
-    let output = std::process::Command::new("docker")
-        .args(["exec", "-w", &build_path, &container_id])
-        .args(["cargo", build_command])
+    let mut cmd = std::process::Command::new("docker");
+    cmd.args(["exec", "-w", &build_path, &container_id])
+        .args(["cargo", build_command]);
+
+    // Add arch flag if specified
+    if let Some(arch_value) = &arch {
+        cmd.args(["--arch", arch_value]);
+    }
+
+    let output = cmd
         .args(["--"])
         .args(locked_args)
         .args(manifest_path_filter)
@@ -1120,6 +1149,7 @@ fn build_args(
     verify_tmp_root_path: &str,
     base_image: Option<String>,
     bpf_flag: bool,
+    arch: Option<String>,
     cargo_args: Vec<String>,
 ) -> anyhow::Result<(Vec<String>, String, String)> {
     let mut args: Vec<String> = Vec::new();
@@ -1183,6 +1213,11 @@ fn build_args(
 
     if bpf_flag {
         args.push("--bpf".to_string());
+    }
+
+    if let Some(arch_value) = &arch {
+        args.push("--arch".to_string());
+        args.push(arch_value.clone());
     }
 
     if !cargo_args.is_empty() {
@@ -1286,6 +1321,7 @@ pub async fn verify_from_repo(
     base_image: Option<String>,
     library_name_opt: Option<String>,
     bpf_flag: bool,
+    arch: Option<String>,
     cargo_args: Vec<String>,
     current_dir: bool,
     skip_prompt: bool,
@@ -1321,6 +1357,7 @@ pub async fn verify_from_repo(
         &verify_tmp_root_path,
         base_image.clone(),
         bpf_flag,
+        arch.clone(),
         cargo_args.clone(),
     )?;
     println!("Build path: {:?}", mount_path);
@@ -1333,6 +1370,7 @@ pub async fn verify_from_repo(
             mount_path,
             base_image.clone(),
             bpf_flag,
+            arch.clone(),
             library_name.clone(),
             connection,
             program_id,
@@ -1415,6 +1453,7 @@ pub fn build_and_verify_repo(
     mount_path: String,
     base_image: Option<String>,
     bpf_flag: bool,
+    arch: Option<String>,
     library_name: String,
     connection: &RpcClient,
     program_id: Pubkey,
@@ -1428,6 +1467,7 @@ pub fn build_and_verify_repo(
         Some(library_name),
         base_image,
         bpf_flag,
+        arch,
         cargo_args,
         container_id_opt,
     )?;
@@ -1564,6 +1604,7 @@ async fn export_pda_tx(
     library_name: Option<String>,
     base_image: Option<String>,
     bpf_flag: bool,
+    arch: Option<String>,
     temp_dir: &mut Option<String>,
     encoding: UiTransactionEncoding,
     cargo_args: Vec<String>,
@@ -1591,6 +1632,7 @@ async fn export_pda_tx(
             &temp_root_path,
             base_image.clone(),
             bpf_flag,
+            arch,
             cargo_args,
         )?
         .0,
