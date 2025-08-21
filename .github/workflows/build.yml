@@ -3,7 +3,7 @@ name: Create Release
 on:
   push:
     tags:
-      - 'v*' # Trigger when a commit is tagged with a new version. TODO: Use a filter pattern for major releases only.
+      - "v*" # Trigger when a commit is tagged with a new version. TODO: Use a filter pattern for major releases only.
 
 jobs:
   create_release:
@@ -38,9 +38,10 @@ jobs:
             asset_name: solana-verify-macos
     steps:
       - name: Checkout code
-        uses: actions/checkout@v1
+        uses: actions/checkout@v4
 
       - name: Install dependencies
+        if: runner.os == 'Linux'
         run: sudo apt install -y pkg-config libudev-dev
 
       - name: Use Rust toolchain
