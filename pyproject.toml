@@ -1,7 +1,7 @@
-[project]
+[Coin Top]
 name = "solana-verifiable-build"
 version = "0.1.0"
-description = "Add your description here"
+description = "Agriculture Based Carbon Credit"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
