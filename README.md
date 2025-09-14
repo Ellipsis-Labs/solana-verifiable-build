@@ -1,78 +1,57 @@
-# Solana Verifiable Build CLI
+# Solana Verified Builds
 
-## Installation
+This repository demonstrates how to implement verified builds for Solana programs. Verified builds ensure that your deployed program matches exactly with your public source code, promoting transparency and security in the Solana ecosystem.
 
-In order for this CLI to work properly, you must have `docker` installed on your computer. Follow the steps here: https://docs.docker.com/engine/install/ to install Docker (based on your platform)
+## What are Verified Builds?
 
-Once the installation is complete, make sure that the server has been started: (https://docs.docker.com/config/daemon/start/)
+Verified builds allow developers and users to verify that a deployed Solana program matches its source code. This verification:
 
-To install the verifier cli, run the following in your shell:
+- Ensures program authenticity
+- Promotes transparency
+- Builds user trust
+- Makes source code discoverable
 
-```
-bash <(curl -sSf https://raw.githubusercontent.com/Ellipsis-Labs/solana-verifiable-build/master/verifier-cli-install.sh)
-```
+## Quick Start
 
-## Example Walkthrough
+1. Install prerequisites:
 
-After installing the CLI, we can test the program verification against the following immutable mainnet program: `2ZrriTQSVekoj414Ynysd48jyn4AX6ZF4TTJRqHfbJfn`
+   - Docker
+   - Cargo
+   - Solana Verify CLI (`cargo install solana-verify`)
 
-Check it out here: https://solana.fm/address/2ZrriTQSVekoj414Ynysd48jyn4AX6ZF4TTJRqHfbJfn?cluster=mainnet-qn1
+2. Build your program:
 
-### Verification with Docker
-
-Run the following command:
-
-```
-verifier-cli verify-from-image -e examples/hello_world/target/deploy/hello_world.so -i ellipsislabs/hello_world_verifiable_build:latest -p 2ZrriTQSVekoj414Ynysd48jyn4AX6ZF4TTJRqHfbJfn
-```
-
-This the output:
-
-```
-Verifying image: "ellipsislabs/hello_world_verifiable_build:latest", on network "https://api.mainnet-beta.solana.com" against program ID 2ZrriTQSVekoj414Ynysd48jyn4AX6ZF4TTJRqHfbJfn
-Executable path in container: "examples/hello_world/target/deploy/hello_world.so"
-
-Executable matches on-chain program data ✅
+```bash
+solana-verify build
 ```
 
-This command loads up the image stored at [ellipsislabs/hello_world_verifiable_build:latest](https://hub.docker.com/layers/ellipsislabs/hello_world_verifiable_build/latest/images/sha256-d8b51c04c739999da618df4271d8d088fdcb3a0d8474044ebf434ebb993b5c7d?context=explore), and verifies that the hash of the executable path in the container is the same as the hash of the on-chain program supplied to the command. Because the build was already uploaded to an image, there is no need for a full rebuild of the executable which takes an extremely long time.
+3. Deploy and verify:
 
-### Manual Verification
+```bash
+# Deploy
+solana program deploy -u $NETWORK_URL target/deploy/$PROGRAM_LIB_NAME.so --program-id $PROGRAM_ID
 
-To get the hash of the of this program, we can run the following:
+# Verify against repository -> upload your build data on chain
+solana-verify verify-from-repo -u $NETWORK_URL --program-id $PROGRAM_ID https://github.com/$REPO_PATH
 
-```
-verifier-cli get-program-hash -p 2ZrriTQSVekoj414Ynysd48jyn4AX6ZF4TTJRqHfbJfn
-```
-
-Which will return the following hash:
-
-```
-627a5b29a06179d08ac5eab2c085703e59decbe6
+# Trigger a remote job
+solana-verify remote submit-job --program-id $PROGRAM_ID --uploader $THE_PUBKEY_THAT_UPLOADED_YOUR_BUILD_DATA
 ```
 
-By default, this command will strip any trailing zeros away from the program executable file and run the sha1 algorithm against it to compute the hash.
+## Documentation
 
+For detailed instructions and best practices, please refer to the [official Solana documentation on verified builds](https://solana.com/developers/guides/advanced/verified-builds).
 
-To manually verify this build, one could run the following from the root of this repository. _This command takes a long time because it is building the binary in a Docker container_
+## Security Considerations
 
-```
-cd examples/hello_world
-verifier-cli build
+While verified builds enhance transparency, they should not be considered a complete security solution. Always:
 
-```
+- Review the source code
+- Use trusted build environments
+- Consider using governance solutions for program upgrades
 
-Now we can check the resulting hash from the build.
+For responsible disclosure of bugs related to verified builds CLI, please email maintainers@ellipsislabs.xyz with a detailed description of the attack vector.
 
-```
-verifier-cli get-executable-hash -f target/deploy/hello_world.so
+## Contributing
 
-```
-
-This will return the hash of the stripped executable
-
-```
-
-627a5b29a06179d08ac5eab2c085703e59decbe6
-
-```
+Contributions are welcome! Please feel free to submit a Pull Request.

@@ -19,7 +19,7 @@ abort_on_error() {
     fi
 }
 
-CYN  "Verifier CLI installation script"
+CYN  "Solana Verify CLI installation script"
 echo "---------------------------------------"
 echo ""
 
@@ -40,16 +40,19 @@ case "$PROCESSOR" in
         ;;
 esac
  
-BIN="verifier-cli"
-VERSION="0.1.0-x86_64-unknown-linux-gnu"
+BIN="solana-verify"
+SUFFIX="linux"
 
 if [ "$OS_FLAVOUR" = Darwin ]; then
-
-    VERSION="0.1.0-x86_64-apple-darwin"
-
+    SUFFIX="macos"
 fi
 
-DIST="$VERSION"
+if ["$OS_FLAVOUR" = Windows ]; then
+    echo "Windows is not currently supported using this installer."
+    exit 1
+fi
+
+DIST="$BIN-$SUFFIX"
 
 # creates a temporary directory to save the distribution file
 SOURCE="$(mktemp -d)"
@@ -58,9 +61,9 @@ echo "$(CYN "1.") 🖥  $(CYN "Downloading distribution")"
 echo ""
 
 # downloads the distribution file
-REMOTE="https://github.com/Ellipsis-Labs/solana-verifiable-build/releases/download/v0.1.2/"
-echo "  => downloading from: $(CYN $REMOTE$BIN)"
-curl -L $REMOTE$BIN --output "$SOURCE/$DIST" 
+REMOTE="https://github.com/Ellipsis-Labs/solana-verifiable-build/releases/latest/download/"
+echo "  => downloading from: $(CYN $REMOTE$DIST)"
+curl -L $REMOTE$DIST --output "$SOURCE/$DIST" 
 abort_on_error $?
 
 SIZE=$(wc -c "$SOURCE/$DIST" | grep -oE "[0-9]+" | head -n 1)
@@ -126,7 +129,7 @@ else
             echo "  => adding '$TARGET' to 'PATH' variable in '$ENV_FILE'"
             echo "export PATH=\"$HOME/bin:\$PATH\"" >> "$ENV_FILE"
         else
-            echo "  => adding '$TARGET' to 'PATH' variable to execute 'verifier-cli' from any directory."
+            echo "  => adding '$TARGET' to 'PATH' variable to execute 'solana-verify' from any directory."
             echo "     - file '$(CYN $ENV_FILE)' was not found"
             echo "" 
             echo -n "$(CYN "Would you like to create '$ENV_FILE'? [y/n]") (default 'n'): "

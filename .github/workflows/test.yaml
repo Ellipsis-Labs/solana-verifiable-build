@@ -1,0 +1,39 @@
+name: Run Integration Tests
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+  workflow_dispatch:
+
+jobs:
+  test:
+    name: Run Tests
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false # Continue with other tests even if one fails
+      matrix:
+        test_name:
+          - test_phoenix_v1
+          - test_squads_v3
+          - test_drift_v2
+          - test_marginfi_v2
+          - test_local_example
+          - test_verify_from_image
+          - test_games_preset
+          - test_agave_2_1
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache dependencies
+        uses: Swatinem/rust-cache@v2
+
+      - name: Build
+        run: cargo build
+
+      - name: Run ${{ matrix.test_name }}
+        run: cargo test ${{ matrix.test_name }} -- --nocapture
