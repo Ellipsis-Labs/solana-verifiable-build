@@ -1,0 +1,124 @@
+# تشغيل على devnet
+./deploy_verify_advanced.sh devnet
+
+# تشغيل على mainnet
+./deploy_verify_advanced.sh mainnet
+
+# تشغيل على localnet
+./deploy_verify_advanced.sh localnet
+#!/bin/bash
+set -e
+
+# ==============================
+# 🎨 Logging functions (ملون)
+# ==============================
+GREEN="\033[0;32m"
+YELLOW="\033[1;33m"
+RED="\033[0;31m"
+BLUE="\033[0;34m"
+NC="\033[0m" # No Color
+
+log_info()    { echo -e "${BLUE}[INFO]${NC} $1"; }
+log_success() { echo -e "${GREEN}[✔]${NC} $1"; }
+log_warn()    { echo -e "${YELLOW}[! WARN]${NC} $1"; }
+log_error()   { echo -e "${RED}[✖ ERROR]${NC} $1"; }
+
+# ==============================
+# ⚙️ Helper functions
+# ==============================
+check_command() {
+  command -v "$1" >/dev/null 2>&1 || { log_error "$1 is not installed. Install it first."; exit 1; }
+}
+
+retry() {
+  local n=0
+  local max_retries=$1
+  shift
+  until "$@"; do
+    n=$((n+1))
+    if [ $n -ge $max_retries ]; then
+      log_error "Command failed after $max_retries attempts: $*"
+      return 1
+    fi
+    log_warn "Retrying ($n/$max_retries)..."
+    sleep 2
+  done
+}
+
+# ==============================
+# 🛠 Verify tools
+# ==============================
+check_command solana
+check_command cargo
+check_command solana-verify
+
+# ==============================
+# 🌐 Environment selection
+# ==============================
+ENV=${1:-devnet}
+case $ENV in
+  devnet) NETWORK_URL=${SOLANA_DEVNET_URL:-https://api.devnet.solana.com} ;;
+  mainnet) NETWORK_URL=${SOLANA_MAINNET_URL:-https://api.mainnet-beta.solana.com} ;;
+  localnet) NETWORK_URL=${SOLANA_LOCALNET_URL:-http://127.0.0.1:8899} ;;
+  *) log_error "Invalid environment: choose devnet/mainnet/localnet"; exit 1 ;;
+esac
+log_info "Environment: $ENV ($NETWORK_URL)"
+
+# ==============================
+# ⚙️ Project-specific ENV (يمكن تعديله لكل مشروع)
+# ==============================
+PROGRAM_NAME=${PROGRAM_NAME:-staking_program}
+PROGRAM_LIB_NAME=${PROGRAM_LIB_NAME:-staking_program}
+PROGRAM_ID=${PROGRAM_ID:-YourProgramIDHere1111111111111111111111111111111}
+REPO_PATH=${REPO_PATH:-username/solana-staking-program}
+UPLOADER_PUBKEY=$(solana address)
+
+# ==============================
+# 🧱 1. Build
+# ==============================
+log_info "Building program..."
+cargo build-sbf --manifest-path=programs/$PROGRAM_NAME/Cargo.toml
+
+if [ ! -f "target/deploy/${PROGRAM_LIB_NAME}.so" ]; then
+  log_error "Build failed: .so file not found!"
+  exit 1
+fi
+log_success "Build complete: target/deploy/${PROGRAM_LIB_NAME}.so"
+
+# ==============================
+# 🚀 2. Deploy
+# ==============================
+log_info "Deploying program..."
+retry 3 solana program deploy -u $NETWORK_URL target/deploy/${PROGRAM_LIB_NAME}.so --program-id $PROGRAM_ID
+log_success "Program deployed!"
+
+# ==============================
+# 🧮 3. Verification build
+# ==============================
+log_info "Generating verification build..."
+retry 3 solana-verify build \
+  --program-id $PROGRAM_ID \
+  --url $NETWORK_URL \
+  --repo-url https://github.com/$REPO_PATH
+log_success "Verification build generated!"
+
+# ==============================
+# 🌐 4. Verify against repository
+# ==============================
+log_info "Verifying program against GitHub repo..."
+retry 3 solana-verify verify-from-repo \
+  -u $NETWORK_URL \
+  --program-id $PROGRAM_ID \
+  https://github.com/$REPO_PATH
+log_success "Source verification successful!"
+
+# ==============================
+# ☁️ 5. Trigger remote verification job
+# ==============================
+log_info "Submitting remote verification job..."
+retry 3 solana-verify remote submit-job \
+  --program-id $PROGRAM_ID \
+  --uploader $UPLOADER_PUBKEY
+log_success "Remote job submitted successfully!"
+
+log_success "🎉 All steps completed!"
