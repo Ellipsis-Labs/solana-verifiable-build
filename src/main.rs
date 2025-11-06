@@ -714,7 +714,7 @@ pub fn get_binary_hash(program_data: Vec<u8>) -> String {
     sha256::digest(&buffer[..])
 }
 
-pub fn get_file_hash(filepath: &str) -> Result<String, std::io::Error> {
+pub fn get_file_hash(filepath: &str) -> anyhow::Result<String> {
     let mut f = std::fs::File::open(filepath)?;
     let metadata = std::fs::metadata(filepath)?;
     let mut buffer = vec![0; metadata.len() as usize];
@@ -1010,18 +1010,29 @@ pub fn build(
         println!("Docker image Solana version: {}", solana_version);
     }
 
-    if let Some(program_name) = library_name {
-        let executable_path = std::process::Command::new("find")
+    if let Some(program_basename) = library_name {
+        let program_filename = format!("{}.so", program_basename);
+        let executable_hash = std::process::Command::new("find")
             .args([
                 &format!("{}/target/deploy", mount_path),
                 "-name",
-                &format!("{}.so", program_name),
+                &program_filename,
             ])
             .output()
             .map_err(|e| anyhow!("Failed to find program: {}", e.to_string()))
-            .and_then(parse_output)?;
-        let executable_hash = get_file_hash(&executable_path)?;
-        println!("{}", executable_hash);
+            .and_then(parse_output)
+            .and_then(|path| get_file_hash(&path));
+
+        if let Ok(executable_hash) = executable_hash {
+            println!("{}", executable_hash);
+        } else {
+            println!(
+                "Build succeeded, but could not find {}; value given to `--library` \
+                may be incorrect. Run `solana-verify get-executable-hash` on the \
+                output binary to print its hash.",
+                program_filename
+            );
+        }
     }
     let output = std::process::Command::new("docker")
         .args(["kill", &container_id])
