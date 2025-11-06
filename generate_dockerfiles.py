@@ -67,11 +67,11 @@ WORKDIR /build
 CMD /bin/bash
 """
 
-# Skipping these because the are not valid releases or where yanked
+# Skipping these because the are not valid releases or where yanked or not released for mainnet
 SKIPPED_VERSIONS = {
     "v1.15", "v1.14.0", "v1.10.0", "v1.10.16", "v1.10.18",
     "v1.10.27", "v1.10.36", "v1.10.37", "v1.11.7", "v1.11.8", "v1.11.9",
-    "v1.13.0",
+    "v1.13.0", 'v1.18.24', 'v2.0.12', 'v2.1.3', 'v2.1.12', "v.2.1.19", "v.2.2.25"
 }
 
 # Determine release information for Solana or Agave
