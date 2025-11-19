@@ -85,7 +85,7 @@ async fn main() -> anyhow::Result<()> {
                 {
                     println!("Failed to close docker container");
                 } else {
-                    println!("Stopped container {}", container_id)
+                    println!("Stopped container {container_id}")
                 }
             }
 
@@ -97,7 +97,7 @@ async fn main() -> anyhow::Result<()> {
                 {
                     println!("Failed to remove temporary directory");
                 } else {
-                    println!("Removed temporary directory {}", temp_dir);
+                    println!("Removed temporary directory {temp_dir}");
                 }
             }
 
@@ -424,7 +424,7 @@ async fn main() -> anyhow::Result<()> {
         ("get-executable-hash", Some(sub_m)) => {
             let filepath = sub_m.value_of("filepath").map(|s| s.to_string()).unwrap();
             let program_hash = get_file_hash(&filepath)?;
-            println!("{}", program_hash);
+            println!("{program_hash}");
             Ok(())
         }
         ("get-buffer-hash", Some(sub_m)) => {
@@ -433,13 +433,13 @@ async fn main() -> anyhow::Result<()> {
                 matches.value_of("url").map(|s| s.to_string()),
                 Pubkey::try_from(buffer_address)?,
             )?;
-            println!("{}", buffer_hash);
+            println!("{buffer_hash}");
             Ok(())
         }
         ("get-program-hash", Some(sub_m)) => {
             let program_id = sub_m.value_of("program-id").unwrap();
             let program_hash = get_program_hash(&connection, Pubkey::try_from(program_id)?)?;
-            println!("{}", program_hash);
+            println!("{program_hash}");
             Ok(())
         }
         ("verify-from-repo", Some(sub_m)) => {
@@ -468,7 +468,7 @@ async fn main() -> anyhow::Result<()> {
 
             let commit_hash = get_commit_hash(sub_m, &repo_url)?;
 
-            println!("Skipping prompt: {}", skip_prompt);
+            println!("Skipping prompt: {skip_prompt}");
             verify_from_repo(
                 remote,
                 mount_path,
@@ -615,12 +615,12 @@ async fn main() -> anyhow::Result<()> {
 pub fn get_client(url: Option<String>, config_path: Option<String>) -> RpcClient {
     let config = match config_path {
         Some(config_file) => Config::load(&config_file).unwrap_or_else(|_| {
-            println!("Failed to load config file: {}", config_file);
+            println!("Failed to load config file: {config_file}");
             Config::default()
         }),
         None => match CONFIG_FILE.as_ref() {
             Some(config_file) => Config::load(config_file).unwrap_or_else(|_| {
-                println!("Failed to load config file: {}", config_file);
+                println!("Failed to load config file: {config_file}");
                 Config::default()
             }),
             None => Config::default(),
@@ -675,7 +675,7 @@ fn get_commit_hash_from_remote(repo_url: &str) -> anyhow::Result<String> {
             )
         })?;
 
-    println!("Default branch detected: {}", default_branch);
+    println!("Default branch detected: {default_branch}");
 
     // Fetch the latest commit hash for the default branch
     let hash_output = Command::new("git")
@@ -683,14 +683,12 @@ fn get_commit_hash_from_remote(repo_url: &str) -> anyhow::Result<String> {
         .arg(repo_url)
         .arg(&default_branch)
         .output()
-        .map_err(|e| anyhow::anyhow!("Failed to fetch commit hash for default branch '{}' from repository '{}'.\nError: {}", default_branch, repo_url, e))?;
+        .map_err(|e| anyhow::anyhow!("Failed to fetch commit hash for default branch '{default_branch}' from repository '{repo_url}'.\nError: {e}"))?;
 
     if !hash_output.status.success() {
+        let stderr = String::from_utf8_lossy(&hash_output.stderr);
         return Err(anyhow::anyhow!(
-            "Failed to fetch commit hash for branch '{}' from repository '{}'.\nGit error: {}",
-            default_branch,
-            repo_url,
-            String::from_utf8_lossy(&hash_output.stderr)
+            "Failed to fetch commit hash for branch '{default_branch}' from repository '{repo_url}'.\nGit error: {stderr}"
         ));
     }
 
@@ -733,7 +731,7 @@ pub fn get_buffer_hash(url: Option<String>, buffer_address: Pubkey) -> anyhow::R
 pub fn get_program_hash(client: &RpcClient, program_id: Pubkey) -> anyhow::Result<String> {
     // First check if the program account exists
     if client.get_account(&program_id).is_err() {
-        return Err(anyhow!("Program {} is not deployed", program_id));
+        return Err(anyhow!("Program {program_id} is not deployed"));
     }
 
     let program_buffer = get_program_data_address(&program_id);
@@ -747,11 +745,10 @@ pub fn get_program_hash(client: &RpcClient, program_id: Pubkey) -> anyhow::Resul
             Ok(program_hash)
         }
         Err(_) => Err(anyhow!(
-            "Could not find program data for {}. This could mean:\n\
+            "Could not find program data for {program_id}. This could mean:\n\
              1. The program is not deployed\n\
              2. The program is not upgradeable\n\
-             3. The program was deployed with a different loader",
-            program_id
+             3. The program was deployed with a different loader"
         )),
     }
 }
@@ -765,10 +762,7 @@ pub fn get_docker_resource_limits() -> Option<(String, String)> {
     let memory = std::env::var("SVB_DOCKER_MEMORY_LIMIT").ok();
     let cpus = std::env::var("SVB_DOCKER_CPU_LIMIT").ok();
     if memory.is_some() || cpus.is_some() {
-        println!(
-            "Using docker resource limits: memory: {:?}, cpus: {:?}",
-            memory, cpus
-        );
+        println!("Using docker resource limits: memory: {memory:?}, cpus: {cpus:?}");
     } else {
         // Print message to user that they can set these environment variables to limit docker resources
         println!("No Docker resource limits are set.");
@@ -789,12 +783,12 @@ fn setup_offline_build(mount_path: &str) -> anyhow::Result<()> {
     ensure!(output.status.success(), "Failed to run cargo vendor");
 
     // Create .cargo directory if it doesn't exist
-    let cargo_dir = format!("{}/.cargo", mount_path);
+    let cargo_dir = format!("{mount_path}/.cargo");
     std::fs::create_dir_all(&cargo_dir)?;
 
     // Create config.toml with vendored sources configuration
     let config_content = "[source.crates-io]\nreplace-with = \"vendored-sources\"\n\n[source.vendored-sources]\ndirectory = \"vendor\"";
-    std::fs::write(format!("{}/config.toml", cargo_dir), config_content)?;
+    std::fs::write(format!("{cargo_dir}/config.toml"), config_content)?;
 
     println!("Successfully set up offline build configuration");
     Ok(())
@@ -817,12 +811,12 @@ pub fn build(
             .to_string(),
     );
     mount_path = mount_path.trim_end_matches('/').to_string();
-    println!("Mounting path: {}", mount_path);
+    println!("Mounting path: {mount_path}");
 
-    let lockfile = format!("{}/Cargo.lock", mount_path);
+    let lockfile = format!("{mount_path}/Cargo.lock");
     if !std::path::Path::new(&lockfile).exists() {
         println!("Mount directory must contain a Cargo.lock file");
-        return Err(anyhow!("Missing Cargo.lock file at '{}'", lockfile));
+        return Err(anyhow!("Missing Cargo.lock file at '{lockfile}'"));
     }
 
     // Check if --offline flag is present in cargo_args
@@ -843,18 +837,12 @@ pub fn build(
                 solana_version = Some("v1.13.5".to_string());
                 "projectserum/build@sha256:75b75eab447ebcca1f471c98583d9b5d82c4be122c470852a022afcf9c98bead".to_string()
             } else if let Some(digest) = IMAGE_MAP.get(&(major, minor, patch)) {
-                println!(
-                    "Found docker image for Solana version {}.{}.{}",
-                    major, minor, patch
-                );
-                solana_version = Some(format!("v{}.{}.{}", major, minor, patch));
-                format!("solanafoundation/solana-verifiable-build@{}", digest)
+                println!("Found docker image for Solana version {major}.{minor}.{patch}");
+                solana_version = Some(format!("v{major}.{minor}.{patch}"));
+                format!("solanafoundation/solana-verifiable-build@{digest}")
             } else {
                 return Err(anyhow!(
-                    "No compatible Docker image found for Solana version {}.{}.{}",
-                    major,
-                    minor,
-                    patch
+                    "No compatible Docker image found for Solana version {major}.{minor}.{patch}"
                 ));
             }
         }
@@ -879,26 +867,22 @@ pub fn build(
         .map_err(|e| anyhow::format_err!("Failed to get working directory : {}", e.to_string()))
         .and_then(parse_output)?;
 
-    println!("Workdir: {}", workdir);
+    println!("Workdir: {workdir}");
 
-    let build_path = format!("{}/{}", workdir, relative_build_path);
-    println!("Building program at {}", build_path);
+    let build_path = format!("{workdir}/{relative_build_path}");
+    println!("Building program at {build_path}");
 
     let manifest_path_filter = manifest_path
         .clone()
-        .map(|m| vec!["--manifest-path".to_string(), format!("{}/{}", workdir, m)])
+        .map(|m| vec!["--manifest-path".to_string(), format!("{workdir}/{m}")])
         .unwrap_or_else(Vec::new);
 
-    if manifest_path.is_some() {
-        println!(
-            "Building manifest path: {}/{}",
-            workdir,
-            manifest_path.unwrap()
-        );
+    if let Some(manifest) = manifest_path.as_ref() {
+        println!("Building manifest path: {workdir}/{manifest}");
     }
 
     // change directory to program/build dir
-    let mount_params = format!("{}:{}", mount_path, workdir);
+    let mount_params = format!("{mount_path}:{workdir}");
     let container_id = {
         let mut cmd = std::process::Command::new("docker");
         cmd.args(["run", "--rm", "-v", &mount_params, "-dit"]);
@@ -978,24 +962,24 @@ pub fn build(
     ensure!(output.status.success(), "Failed to cargo build");
 
     println!("Finished building program");
-    println!("Program Solana version: v{}.{}.{}", major, minor, patch);
+    println!("Program Solana version: v{major}.{minor}.{patch}");
 
     if let Some(solana_version) = solana_version {
-        println!("Docker image Solana version: {}", solana_version);
+        println!("Docker image Solana version: {solana_version}");
     }
 
     if let Some(program_name) = library_name {
         let executable_path = std::process::Command::new("find")
             .args([
-                &format!("{}/target/deploy", mount_path),
+                &format!("{mount_path}/target/deploy"),
                 "-name",
-                &format!("{}.so", program_name),
+                &format!("{program_name}.so"),
             ])
             .output()
             .map_err(|e| anyhow!("Failed to find program: {}", e.to_string()))
             .and_then(parse_output)?;
         let executable_hash = get_file_hash(&executable_path)?;
-        println!("{}", executable_hash);
+        println!("{executable_hash}");
     }
     let output = std::process::Command::new("docker")
         .args(["kill", &container_id])
@@ -1016,11 +1000,8 @@ pub fn verify_from_image(
     temp_dir: &mut Option<String>,
     container_id_opt: &mut Option<String>,
 ) -> anyhow::Result<()> {
-    println!(
-        "Verifying image: {:?}, on network {:?} against program ID {}",
-        image, network, program_id
-    );
-    println!("Executable path in container: {:?}", executable_path);
+    println!("Verifying image: {image:?}, on network {network:?} against program ID {program_id}");
+    println!("Executable path in container: {executable_path:?}");
     println!(" ");
 
     let workdir = std::process::Command::new("docker")
@@ -1030,7 +1011,7 @@ pub fn verify_from_image(
         .map_err(|e| anyhow::format_err!("Failed to get working directory : {}", e.to_string()))
         .and_then(parse_output)?;
 
-    println!("Workdir: {}", workdir);
+    println!("Workdir: {workdir}");
 
     let container_id = {
         let mut cmd = std::process::Command::new("docker");
@@ -1071,11 +1052,11 @@ pub fn verify_from_image(
 
     temp_dir.replace(verify_dir.clone());
 
-    let program_filepath = format!("{}/program.so", verify_dir);
+    let program_filepath = format!("{verify_dir}/program.so");
     let output = std::process::Command::new("docker")
         .args([
             "cp",
-            format!("{}:{}/{}", container_id, workdir, executable_path).as_str(),
+            format!("{container_id}:{workdir}/{executable_path}").as_str(),
             program_filepath.as_str(),
         ])
         .stdout(Stdio::inherit())
@@ -1090,8 +1071,8 @@ pub fn verify_from_image(
     let offset = UpgradeableLoaderState::size_of_programdata_metadata();
     let account_data = &client.get_account_data(&program_buffer)?[offset..];
     let program_hash = get_binary_hash(account_data.to_vec());
-    println!("Executable hash: {}", executable_hash);
-    println!("Program hash: {}", program_hash);
+    println!("Executable hash: {executable_hash}");
+    println!("Program hash: {program_hash}");
 
     // Cleanup docker and rm file
     std::process::Command::new("docker")
@@ -1162,15 +1143,13 @@ fn build_args(
                     }
                     if options.len() != 1 {
                         println!(
-                            "Found multiple possible targets in root directory: {:?}",
-                            options
+                            "Found multiple possible targets in root directory: {options:?}"
                         );
                         println!(
-                            "Please explicitly specify the target with the --library-name <name> option",
+                            "Please explicitly specify the target with the --library-name <name> option"
                         );
                         Err(anyhow::format_err!(
-                            "Multiple library targets found: {:?}",
-                            options
+                            "Multiple library targets found: {options:?}"
                         ))
                     } else {
                         Ok(options[0].clone())
@@ -1224,13 +1203,13 @@ fn clone_repo_and_checkout(
             uuid.clone()
         )
     } else {
-        format!("/tmp/solana-verify/{}", uuid)
+        format!("/tmp/solana-verify/{uuid}")
     };
 
     temp_dir_opt.replace(verify_dir.clone());
 
-    let verify_tmp_root_path = format!("{}/{}", verify_dir, base_name);
-    println!("Cloning repo into: {}", verify_tmp_root_path);
+    let verify_tmp_root_path = format!("{verify_dir}/{base_name}");
+    println!("Cloning repo into: {verify_tmp_root_path}");
 
     let output = std::process::Command::new("git")
         .args(["clone", repo_url, &verify_tmp_root_path])
@@ -1247,9 +1226,9 @@ fn clone_repo_and_checkout(
             .args(["-C", &verify_tmp_root_path])
             .args(["checkout", commit_hash])
             .output()
-            .map_err(|e| anyhow!("Failed to checkout commit hash '{}' : {:?}", commit_hash, e))?;
+            .map_err(|e| anyhow!("Failed to checkout commit hash '{commit_hash}' : {e:?}"))?;
         if output.status.success() {
-            println!("Checked out commit hash: {}", commit_hash);
+            println!("Checked out commit hash: {commit_hash}");
         } else {
             let output = std::process::Command::new("rm")
                 .args(["-rf", verify_dir.as_str()])
@@ -1334,8 +1313,8 @@ pub async fn verify_from_repo(
         arch.clone(),
         cargo_args.clone(),
     )?;
-    println!("Build path: {:?}", mount_path);
-    println!("Verifying program: {}", library_name);
+    println!("Build path: {mount_path:?}");
+    println!("Verifying program: {library_name}");
 
     check_signal(container_id_opt, temp_dir_opt);
 
@@ -1364,8 +1343,8 @@ pub async fn verify_from_repo(
     match result {
         Ok((build_hash, program_hash)) => {
             if !skip_build {
-                println!("Executable Program Hash from repo: {}", build_hash);
-                println!("On-chain Program Hash: {}", program_hash);
+                println!("Executable Program Hash from repo: {build_hash}");
+                println!("On-chain Program Hash: {program_hash}");
             }
 
             if skip_build || build_hash == program_hash {
@@ -1399,13 +1378,9 @@ pub async fn verify_from_repo(
                         path_to_keypair.as_ref(),
                         config_path.clone(),
                     )?;
+                    println!("Sending verify command to remote machine with uploader: {uploader}");
                     println!(
-                        "Sending verify command to remote machine with uploader: {}",
-                        &uploader
-                    );
-                    println!(
-                        "\nPlease note that if the desired uploader is not the provided keypair, you will need to run `solana-verify remote submit-job --program-id {} --uploader <uploader-address>.\n",
-                        &program_id,
+                        "\nPlease note that if the desired uploader is not the provided keypair, you will need to run `solana-verify remote submit-job --program-id {program_id} --uploader <uploader-address>.\n"
                     );
                     send_job_with_uploader_to_remote(connection, &program_id, &uploader).await?;
                 }
@@ -1413,8 +1388,8 @@ pub async fn verify_from_repo(
                 Ok(())
             } else {
                 println!("Program hashes do not match ❌");
-                println!("Executable Program Hash from repo: {}", build_hash);
-                println!("On-chain Program Hash: {}", program_hash);
+                println!("Executable Program Hash from repo: {build_hash}");
+                println!("On-chain Program Hash: {program_hash}");
                 Ok(())
             }
         }
@@ -1435,7 +1410,7 @@ pub fn build_and_verify_repo(
     container_id_opt: &mut Option<String>,
 ) -> anyhow::Result<(String, String)> {
     // Build the code using the docker container
-    let executable_filename = format!("{}.so", &library_name);
+    let executable_filename = format!("{library_name}.so");
     build(
         Some(mount_path.clone()),
         Some(library_name),
@@ -1449,21 +1424,18 @@ pub fn build_and_verify_repo(
     // Get the hash of the build
     let executable_path = std::process::Command::new("find")
         .args([
-            &format!("{}/target/deploy", mount_path),
+            &format!("{mount_path}/target/deploy"),
             "-name",
             executable_filename.as_str(),
         ])
         .output()
         .map_err(|e| anyhow::format_err!("Failed to find executable file {}", e.to_string()))
         .and_then(parse_output)?;
-    println!("Executable file found at path: {:?}", executable_path);
+    println!("Executable file found at path: {executable_path:?}");
     let build_hash = get_file_hash(&executable_path)?;
 
     // Get the hash of the deployed program
-    println!(
-        "Fetching on-chain program data for program ID: {}",
-        program_id,
-    );
+    println!("Fetching on-chain program data for program ID: {program_id}");
     let program_hash = get_program_hash(connection, program_id)?;
 
     Ok((build_hash, program_hash))
@@ -1529,9 +1501,9 @@ pub fn get_pkg_name_from_cargo_toml(cargo_toml_file: &str) -> Option<String> {
 
 pub fn print_build_params(pubkey: &Pubkey, build_params: &OtterBuildParams) {
     println!("----------------------------------------------------------------");
-    println!("Address: {:?}", pubkey);
+    println!("Address: {pubkey:?}");
     println!("----------------------------------------------------------------");
-    println!("{}", build_params);
+    println!("{build_params}");
 }
 
 pub async fn list_program_pdas(program_id: Pubkey, client: &RpcClient) -> anyhow::Result<()> {
@@ -1564,7 +1536,7 @@ pub fn get_commit_hash(sub_m: &ArgMatches, repo_url: &str) -> anyhow::Result<Str
             anyhow::anyhow!("Commit hash must be provided or inferred from the remote repository")
         })?;
 
-    println!("Commit hash from remote: {}", commit_hash);
+    println!("Commit hash from remote: {commit_hash}");
     Ok(commit_hash)
 }
 
@@ -1650,10 +1622,12 @@ async fn export_pda_tx(
     // serialize the transaction to base58
     match encoding {
         UiTransactionEncoding::Base58 => {
-            println!("{}", bs58::encode(serialize(&tx)?).into_string());
+            let encoded = bs58::encode(serialize(&tx)?).into_string();
+            println!("{encoded}");
         }
         UiTransactionEncoding::Base64 => {
-            println!("{}", BASE64_STANDARD.encode(serialize(&tx)?));
+            let encoded = BASE64_STANDARD.encode(serialize(&tx)?);
+            println!("{encoded}");
         }
         _ => unreachable!(),
     }
