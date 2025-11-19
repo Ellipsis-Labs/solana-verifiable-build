@@ -842,7 +842,7 @@ pub fn build(
                 format!("solanafoundation/solana-verifiable-build@{digest}")
             } else {
                 return Err(anyhow!(
-                    "No compatible Docker image found for Solana version {major}.{minor}.{patch}"
+                    "No compatible Docker image found for Solana version {major}.{minor}.{patch} \nPlease use --base-image flag to specify a compatible Docker image manually"
                 ));
             }
         }
