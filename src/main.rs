@@ -862,41 +862,15 @@ pub fn build(
 
     let mut manifest_path = None;
 
-    let relative_build_path = std::process::Command::new("find")
-        .args([&mount_path, "-name", "Cargo.toml"])
-        .output()
-        .map_err(|e| {
-            anyhow::format_err!(
-                "Failed to find Cargo.toml files in root directory: {}",
-                e.to_string()
-            )
-        })
-        .and_then(|output| {
-            ensure!(
-                output.status.success(),
-                "Failed to find Cargo.toml files in root directory:"
-            );
-            for p in String::from_utf8(output.stdout)?.split("\n") {
-                match get_lib_name_from_cargo_toml(p) {
-                    Ok(name) => {
-                        if name == library_name.clone().unwrap_or_default() {
-                            manifest_path = Some(p.to_string().replace(&mount_path, ""));
-                            return Ok(p
-                                .to_string()
-                                .replace("Cargo.toml", "")
-                                .replace(&mount_path, ""));
-                        }
-                    }
-                    Err(_) => {
-                        continue;
-                    }
-                }
-            }
-            Err(anyhow!(
-                "No valid Cargo.toml files found in the project directory"
-            ))
-        })
-        .unwrap_or_else(|_| "".to_string());
+    let relative_build_path = match library_name.as_deref() {
+        Some(library_name) => {
+            let (manifest_path_for_library_name, build_path) =
+                find_relative_manifest_path_and_build_path(&mount_path, library_name)?;
+            manifest_path = Some(manifest_path_for_library_name);
+            build_path
+        }
+        None => "".into(),
+    };
 
     let workdir = std::process::Command::new("docker")
         .args(["run", "--rm", &image, "pwd"])
@@ -1504,10 +1478,11 @@ pub fn parse_output(output: Output) -> anyhow::Result<String> {
         output.status,
         string_result
     );
+    let output = string_result?;
 
-    let parsed_output = string_result?
+    let parsed_output = output
         .strip_suffix("\n")
-        .ok_or_else(|| anyhow!("Failed to parse output"))?
+        .ok_or_else(|| anyhow!("Failed to parse output: {output}"))?
         .to_string();
     Ok(parsed_output)
 }
@@ -1684,4 +1659,46 @@ async fn export_pda_tx(
     }
 
     Ok(())
+}
+
+fn find_relative_manifest_path_and_build_path(
+    mount_path: &str,
+    library_name: &str,
+) -> anyhow::Result<(String, String)> {
+    std::process::Command::new("find")
+        .args([mount_path, "-name", "Cargo.toml"])
+        .output()
+        .map_err(|e| {
+            anyhow::format_err!(
+                "Failed to find Cargo.toml files in root directory: {}",
+                e.to_string()
+            )
+        })
+        .and_then(|output| {
+            ensure!(
+                output.status.success(),
+                "Failed to find Cargo.toml files in root directory"
+            );
+            for p in String::from_utf8(output.stdout)?.split("\n") {
+                match get_lib_name_from_cargo_toml(p) {
+                    Ok(name) => {
+                        if name == library_name {
+                            let manifest_path = p.to_string().replace(mount_path, "");
+                            let build_path = p
+                                .to_string()
+                                .replace("Cargo.toml", "")
+                                .replace(mount_path, "");
+
+                            return Ok((manifest_path, build_path));
+                        }
+                    }
+                    Err(_) => {
+                        continue;
+                    }
+                }
+            }
+            Err(anyhow!(
+                "No valid Cargo.toml file found in the directory for the library-name {library_name}"
+            ))
+        })
 }
