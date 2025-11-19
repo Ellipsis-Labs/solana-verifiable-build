@@ -37,7 +37,7 @@ pub struct JobResponse {
 impl std::fmt::Display for JobResponse {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         if let Some(response) = &self.respose {
-            writeln!(f, "{}", response)?;
+            writeln!(f, "{response}")?;
         } else {
             writeln!(f, "Status: {:?}", self.status)?;
         }
@@ -116,7 +116,7 @@ impl std::fmt::Display for RemoteStatusResponseWrapper {
                     "----------------------------------------------------------------"
                 )?;
             }
-            write!(f, "{}", response)?;
+            write!(f, "{response}")?;
         }
         Ok(())
     }

@@ -45,8 +45,7 @@ mod tests {
 
         assert_eq!(
             program_hash, expected_hash,
-            "Program hash {} does not match expected value {}",
-            program_hash, expected_hash
+            "Program hash {program_hash} does not match expected value {expected_hash}"
         );
 
         Ok(())
@@ -153,8 +152,7 @@ mod tests {
         let hash = String::from_utf8_lossy(&output.stdout).trim().to_string();
         assert_eq!(
             hash, EXPECTED_HASH,
-            "Program hash {} does not match expected value {}",
-            hash, EXPECTED_HASH
+            "Program hash {hash} does not match expected value {EXPECTED_HASH}"
         );
         Ok(())
     }
