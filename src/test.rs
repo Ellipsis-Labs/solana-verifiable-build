@@ -5,7 +5,16 @@ mod tests {
     use std::process::Stdio;
 
     fn test_verify_program_hash_helper(expected_hash: &str, args: &[&str]) -> anyhow::Result<()> {
-        let mut child = std::process::Command::new("./target/debug/solana-verify")
+        // If the target/debug/solana-verify file does not exist, return a clear error
+        let binary_path = "./target/debug/solana-verify";
+        if !std::path::Path::new(binary_path).exists() {
+            anyhow::bail!(
+                "Binary not found at {binary_path}\n\
+                 Please build it first by running: cargo build"
+            );
+        }
+
+        let mut child = std::process::Command::new(binary_path)
             .args(args)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
