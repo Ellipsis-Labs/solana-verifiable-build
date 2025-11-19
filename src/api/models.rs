@@ -15,14 +15,6 @@ pub struct VerifyResponse {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-pub struct StatusResponse {
-    pub is_verified: bool,
-    pub message: String,
-    pub on_chain_hash: String,
-    pub executable_hash: String,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
 pub struct ErrorResponse {
     pub status: Status,
     pub error: String,
