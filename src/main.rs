@@ -1508,9 +1508,19 @@ pub fn print_build_params(pubkey: &Pubkey, build_params: &OtterBuildParams) {
 
 pub async fn list_program_pdas(program_id: Pubkey, client: &RpcClient) -> anyhow::Result<()> {
     let pdas = get_all_pdas_available(client, &program_id).await?;
-    for (pda, build_params) in pdas {
-        print_build_params(&pda, &build_params);
+
+    if pdas.is_empty() {
+        println!("No verification PDAs found for program: {program_id}");
+    } else {
+        println!(
+            "Found {} verification PDA(s) for program {program_id}:\n",
+            pdas.len()
+        );
+        for (pda, build_params) in pdas {
+            print_build_params(&pda, &build_params);
+        }
     }
+
     Ok(())
 }
 
