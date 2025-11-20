@@ -52,7 +52,7 @@ impl std::fmt::Display for OtterBuildParams {
 
 pub fn prompt_user_input(message: &str) -> bool {
     let mut buffer = [0; 1];
-    print!("{}", message);
+    print!("{message}");
     let _ = io::stdout().flush();
     io::stdin()
         .read_exact(&mut buffer)
@@ -228,10 +228,10 @@ fn process_otter_verify_ixs(
     let tx_id = connection
         .send_and_confirm_transaction_with_spinner(&tx)
         .map_err(|err| {
-            println!("{:?}", err);
+            println!("{err:?}");
             anyhow!("Failed to send verification transaction to the blockchain.")
         })?;
-    println!("Program uploaded successfully. Transaction ID: {}", tx_id);
+    println!("Program uploaded successfully. Transaction ID: {tx_id}");
     Ok(())
 }
 
