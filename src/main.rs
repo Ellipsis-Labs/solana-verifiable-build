@@ -13,7 +13,6 @@ use signal_hook::{
 };
 use solana_cli_config::{Config, CONFIG_FILE};
 use solana_loader_v3_interface::{get_program_data_address, state::UpgradeableLoaderState};
-use solana_program::get_address_from_keypair_or_config;
 use solana_rpc_client::rpc_client::RpcClient;
 use solana_sdk::pubkey::Pubkey;
 use solana_transaction_status_client_types::UiTransactionEncoding;
@@ -448,6 +447,11 @@ async fn main() -> anyhow::Result<()> {
             let mount_path = sub_m.value_of("mount-path").map(|s| s.to_string()).unwrap();
             let repo_url = sub_m.value_of("repo-url").map(|s| s.to_string()).unwrap();
             let program_id = sub_m.value_of("program-id").unwrap();
+            if remote {
+                return Err(anyhow!(
+                    "The --remote flag has been deprecated. Upload your verify PDA with programs upgrade authority, then queue the remote worker with `solana-verify remote submit-job --program-id {program_id} --uploader <UPLOADER>`. See https://solana.com/docs/programs/verified-builds for the full workflow."
+                ));
+            }
             let base_image = sub_m.value_of("base-image").map(|s| s.to_string());
             let library_name = sub_m.value_of("library-name").map(|s| s.to_string());
             let bpf_flag = sub_m.is_present("bpf");
@@ -470,7 +474,6 @@ async fn main() -> anyhow::Result<()> {
 
             println!("Skipping prompt: {skip_prompt}");
             verify_from_repo(
-                remote,
                 mount_path,
                 &connection,
                 repo_url,
@@ -1265,7 +1268,6 @@ fn get_basename(repo_url: &str) -> anyhow::Result<String> {
 
 #[allow(clippy::too_many_arguments)]
 pub async fn verify_from_repo(
-    remote: bool,
     relative_mount_path: String,
     connection: &RpcClient,
     repo_url: String,
@@ -1280,15 +1282,12 @@ pub async fn verify_from_repo(
     skip_prompt: bool,
     path_to_keypair: Option<String>,
     compute_unit_price: u64,
-    mut skip_build: bool,
+    skip_build: bool,
     container_id_opt: &mut Option<String>,
     temp_dir_opt: &mut Option<String>,
     check_signal: &dyn Fn(&mut Option<String>, &mut Option<String>),
     config_path: Option<String>,
 ) -> anyhow::Result<()> {
-    // Set skip_build to true if remote is true
-    skip_build |= remote;
-
     // Get source code from repo_url
     let base_name = get_basename(&repo_url)?;
 
@@ -1366,24 +1365,6 @@ pub async fn verify_from_repo(
                     config_path.clone(),
                 )
                 .await?;
-
-                if remote {
-                    check_signal(container_id_opt, temp_dir_opt);
-                    let genesis_hash = get_genesis_hash(connection)?;
-                    if genesis_hash != MAINNET_GENESIS_HASH {
-                        return Err(anyhow!("Remote verification only works with mainnet. Please omit the --remote flag to verify locally."));
-                    }
-
-                    let uploader = get_address_from_keypair_or_config(
-                        path_to_keypair.as_ref(),
-                        config_path.clone(),
-                    )?;
-                    println!("Sending verify command to remote machine with uploader: {uploader}");
-                    println!(
-                        "\nPlease note that if the desired uploader is not the provided keypair, you will need to run `solana-verify remote submit-job --program-id {program_id} --uploader <uploader-address>.\n"
-                    );
-                    send_job_with_uploader_to_remote(connection, &program_id, &uploader).await?;
-                }
 
                 Ok(())
             } else {
