@@ -38,9 +38,11 @@ solana-verify verify-from-repo -u $NETWORK_URL --program-id $PROGRAM_ID https://
 solana-verify remote submit-job --program-id $PROGRAM_ID --uploader $THE_PUBKEY_THAT_UPLOADED_YOUR_BUILD_DATA
 ```
 
+> The legacy `--remote` flag on `verify-from-repo` has been deprecated. Upload your PDA with programs upgrade authority, then run the `remote submit-job` command to queue OtterSec's worker. For a full walkthrough of the PDA workflow, see the [Solana verified builds guide](https://solana.com/docs/programs/verified-builds).
+
 ## Documentation
 
-For detailed instructions and best practices, please refer to the [official Solana documentation on verified builds](https://solana.com/developers/guides/advanced/verified-builds).
+For detailed instructions and best practices, please refer to the [official Solana documentation on verified builds](https://solana.com/docs/programs/verified-builds).
 
 ## Security Considerations
 

@@ -70,17 +70,17 @@ fn print_verification_status(
     status_response: &JobVerificationResponse,
 ) {
     let status_message = if status {
-        format!("Program {} has been verified. ✅", program_id)
+        format!("Program {program_id} has been verified. ✅")
     } else {
-        format!("Program {} has not been verified. ❌", program_id)
+        format!("Program {program_id} has not been verified. ❌")
     };
     let message = if status {
         "The provided GitHub build matches the on-chain hash."
     } else {
         "The provided GitHub build does not match the on-chain hash."
     };
-    println!("{}", status_message);
-    println!("{}", message);
+    println!("{status_message}");
+    println!("{message}");
     println!("On Chain Hash: {}", status_response.on_chain_hash.as_str());
     println!(
         "Executable Hash: {}",
@@ -97,7 +97,9 @@ pub async fn send_job_with_uploader_to_remote(
     // Check that PDA exists before sending job
     let genesis_hash = get_genesis_hash(connection)?;
     if genesis_hash != MAINNET_GENESIS_HASH {
-        return Err(anyhow!("Remote verification service only supports mainnet. You're currently connected to a different network.\n\nTo use remote verification:\n• Connect to mainnet with: --url mainnet\n• Or remove the --remote flag to verify locally"));
+        return Err(anyhow!(format!(
+            "Remote verification service only supports mainnet. You're currently connected to a different network.\n\nTo submit a remote job:\n• Connect to mainnet with: --url mainnet\n• Upload your verify PDA via `solana-verify verify-from-repo`\n• Run `solana-verify remote submit-job --program-id {program_id} --uploader {uploader}`\n\nLearn more: https://solana.com/docs/programs/verified-builds"
+        )));
     }
     get_program_pda(connection, program_id, Some(uploader.to_string()), None).await?;
 
@@ -107,7 +109,7 @@ pub async fn send_job_with_uploader_to_remote(
 
     // Send the POST request
     let response = client
-        .post(format!("{}/verify-with-signer", REMOTE_SERVER_URL))
+        .post(format!("{REMOTE_SERVER_URL}/verify-with-signer"))
         .json(&json!({
             "program_id": program_id.to_string(),
             "signer": uploader.to_string(),
@@ -130,12 +132,12 @@ pub async fn handle_submission_response(
         let response_text = response.text().await?;
         let status_response =
             serde_json::from_str::<VerifyResponse>(&response_text).map_err(|e| {
-                eprintln!("Failed to parse response as VerifyResponse: {}", e);
-                eprintln!("Raw response: {}", response_text);
+                eprintln!("Failed to parse response as VerifyResponse: {e}");
+                eprintln!("Raw response: {response_text}");
                 anyhow!("Failed to parse server response")
             })?;
         let request_id = status_response.request_id;
-        println!("Verification request sent with request id: {}", request_id);
+        println!("Verification request sent with request id: {request_id}");
         println!("Verification in progress... ⏳");
 
         // Span new thread for polling the server for status
@@ -185,41 +187,37 @@ pub async fn handle_submission_response(
                     let _ = sender.send(false);
                     handle.join().unwrap();
                     let status_response: JobVerificationResponse = status.respose.unwrap();
-                    println!("Program {} has not been verified. ❌", program_id);
+                    println!("Program {program_id} has not been verified. ❌");
                     eprintln!("Error message: {}", status_response.message.as_str());
                     println!(
-                        "You can check the logs for more details here: {}/logs/{}",
-                        REMOTE_SERVER_URL, request_id
+                        "You can check the logs for more details here: {REMOTE_SERVER_URL}/logs/{request_id}"
                     );
                     break;
                 }
                 JobStatus::Unknown => {
                     let _ = sender.send(false);
                     handle.join().unwrap();
-                    println!("Program {} has not been verified. ❌", program_id);
+                    println!("Program {program_id} has not been verified. ❌");
                     break;
                 }
             }
         }
-        let url = format!("https://verify.osec.io/status/{}", program_id);
-        println!("Check the verification status at: {}", url);
-        println!(
-            "Job url: {}",
-            &format!("{}/job/{}", REMOTE_SERVER_URL, request_id)
-        );
+        let url = format!("https://verify.osec.io/status/{program_id}");
+        println!("Check the verification status at: {url}");
+        println!("Job url: {REMOTE_SERVER_URL}/job/{request_id}");
 
         Ok(())
     } else if response.status() == 409 {
         let response = response.json::<ErrorResponse>().await?;
         eprintln!("Error: {}", response.error.as_str());
-        let url = format!("{}/status/{}", REMOTE_SERVER_URL, program_id);
-        println!("Check the status at: {}", url);
+        let url = format!("{REMOTE_SERVER_URL}/status/{program_id}");
+        println!("Check the status at: {url}");
         Ok(())
     } else {
         eprintln!("Encountered an error while attempting to send the job to remote");
         Err(anyhow!("{:?}", response.text().await?))?;
-        let url = format!("{}/status/{}", REMOTE_SERVER_URL, program_id);
-        println!("Check the verification status at: {}", url);
+        let url = format!("{REMOTE_SERVER_URL}/status/{program_id}");
+        println!("Check the verification status at: {url}");
         Ok(())
     }
 }
@@ -227,7 +225,7 @@ pub async fn handle_submission_response(
 async fn check_job_status(client: &Client, request_id: &str) -> anyhow::Result<JobResponse> {
     // Get /job/:id
     let response = client
-        .get(format!("{}/job/{}", REMOTE_SERVER_URL, request_id))
+        .get(format!("{REMOTE_SERVER_URL}/job/{request_id}"))
         .send()
         .await
         .unwrap();
@@ -270,12 +268,12 @@ pub async fn get_remote_status(program_id: Pubkey) -> anyhow::Result<()> {
         .build()?;
 
     let response = client
-        .get(format!("{}/status-all/{}", REMOTE_SERVER_URL, program_id,))
+        .get(format!("{REMOTE_SERVER_URL}/status-all/{program_id}"))
         .send()
         .await?;
 
     let status: RemoteStatusResponseWrapper = response.json().await?;
-    println!("{}", status);
+    println!("{status}");
     Ok(())
 }
 
@@ -285,6 +283,6 @@ pub async fn get_remote_job(job_id: &str) -> anyhow::Result<()> {
         .build()?;
 
     let job = check_job_status(&client, job_id).await?;
-    println!("{}", job);
+    println!("{job}");
     Ok(())
 }
