@@ -18,7 +18,7 @@ use solana_sdk::pubkey::Pubkey;
 use solana_transaction_status_client_types::UiTransactionEncoding;
 use std::{
     io::Read,
-    path::PathBuf,
+    path::{Path, PathBuf},
     process::{Command, Output, Stdio},
     sync::{
         atomic::{AtomicBool, Ordering},
@@ -1315,6 +1315,8 @@ pub async fn verify_from_repo(
     println!("Build path: {mount_path:?}");
     println!("Verifying program: {library_name}");
 
+    run_preflight_checks(&mount_path, &library_name)?;
+
     check_signal(container_id_opt, temp_dir_opt);
 
     let result: Result<(String, String), anyhow::Error> = if !skip_build {
@@ -1666,4 +1668,22 @@ fn find_relative_manifest_path_and_build_path(
                 "No valid Cargo.toml file found in the directory for the library-name {library_name}"
             ))
         })
+}
+
+fn run_preflight_checks(mount_path: &str, library_name: &str) -> anyhow::Result<()> {
+    println!("Running pre-flight validation...");
+
+    // Check that mount path exists
+    let mount_path_buf = Path::new(mount_path);
+    ensure!(
+        mount_path_buf.exists(),
+        "Pre-flight check failed: mount path '{}' does not exist.",
+        mount_path
+    );
+
+    // Validate that the library can be found using find_relative_manifest_path_and_build_path
+    find_relative_manifest_path_and_build_path(mount_path, library_name)?;
+
+    println!("Pre-flight checks passed ✅");
+    Ok(())
 }
