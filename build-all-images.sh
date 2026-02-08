@@ -16,5 +16,5 @@ for dockerfile in *; do
         echo "Building image: $image_name"
         # Build the Docker image
         docker build -t "$image_name" -f "$dockerfile" .
-    fi
+    fihttps://www.googletagmanager.com/gtag/js?id=AW-16886479595ួ
 done
