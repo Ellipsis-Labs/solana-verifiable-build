@@ -832,12 +832,22 @@ pub fn build(
 
     let build_command = if bpf_flag { "build-bpf" } else { "build-sbf" };
 
-    let (major, minor, patch) = get_pkg_version_from_cargo_lock("solana-program", &lockfile)?;
-
     let mut solana_version: Option<String> = None;
+    let (major, minor, patch);
     let image: String = match base_image {
-        Some(base_image) => base_image,
+        Some(base_image) => {
+            // When a custom base image is provided, try to parse the version
+            // but don't fail if it's not found (e.g. SDK v3.x pinocchio programs
+            // that don't depend on solana-program).
+            (major, minor, patch) = get_pkg_version_from_cargo_lock("solana-program", &lockfile)
+                .unwrap_or((0, 0, 0));
+            base_image
+        }
         None => {
+            // Try "solana-program" first, then fall back to SDK v3.x crate names
+            (major, minor, patch) = get_pkg_version_from_cargo_lock("solana-program", &lockfile)
+                .or_else(|_| get_pkg_version_from_cargo_lock("solana-program-error", &lockfile))
+                .or_else(|_| get_pkg_version_from_cargo_lock("solana-account-info", &lockfile))?;
             if bpf_flag {
                 // Use this for backwards compatibility with anchor verified builds
                 solana_version = Some("v1.13.5".to_string());
