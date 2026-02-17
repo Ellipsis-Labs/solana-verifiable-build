@@ -25,7 +25,9 @@ use std::{
         atomic::{AtomicBool, Ordering},
         Arc,
     },
+    time::Duration,
 };
+use tokio::time::sleep;
 use uuid::Uuid;
 pub mod api;
 #[rustfmt::skip]
@@ -43,6 +45,8 @@ use crate::solana_program::{
 };
 
 const MAINNET_GENESIS_HASH: &str = "5eykt4UsFv8P8NJdTREpY1vzqKqZKvdpKuc147dw2N9d";
+const MAX_RETRIES: u32 = 5;
+const INITIAL_RETRY_DELAY_MS: u64 = 500;
 
 pub fn get_network(network_str: &str) -> &str {
     match network_str {
@@ -725,40 +729,44 @@ pub fn get_file_hash(filepath: &str) -> Result<String, std::io::Error> {
 pub fn get_buffer_hash(url: Option<String>, buffer_address: Pubkey) -> anyhow::Result<String> {
     let client = get_client(url, None);
     let offset = UpgradeableLoaderState::size_of_buffer_metadata();
-    let account_data = client.get_account_data(&buffer_address)?[offset..].to_vec();
-    let program_hash = get_binary_hash(account_data);
-    Ok(program_hash)
+    let account_data =
+        retry_rpc_call(|| Ok(client.get_account_data(&buffer_address)?[offset..].to_vec()))?;
+    Ok(get_binary_hash(account_data))
 }
 
 pub fn get_program_hash(client: &RpcClient, program_id: Pubkey) -> anyhow::Result<String> {
     // First check if the program account exists
-    if client.get_account(&program_id).is_err() {
-        return Err(anyhow!("Program {} is not deployed", program_id));
-    }
+    retry_rpc_call(|| {
+        if client.get_account(&program_id).is_err() {
+            return Err(anyhow!("Program {} is not deployed", program_id));
+        }
+        Ok(())
+    })?;
 
     let program_buffer = get_program_data_address(&program_id);
 
     // Then check if the program data account exists
-    match client.get_account_data(&program_buffer) {
+    let offset = UpgradeableLoaderState::size_of_programdata_metadata();
+    retry_rpc_call(|| match client.get_account_data(&program_buffer) {
         Ok(data) => {
-            let offset = UpgradeableLoaderState::size_of_programdata_metadata();
             let account_data = data[offset..].to_vec();
-            let program_hash = get_binary_hash(account_data);
-            Ok(program_hash)
+            Ok(get_binary_hash(account_data))
         }
         Err(_) => Err(anyhow!(
             "Could not find program data for {}. This could mean:\n\
-             1. The program is not deployed\n\
-             2. The program is not upgradeable\n\
-             3. The program was deployed with a different loader",
+                     1. The program is not deployed\n\
+                     2. The program is not upgradeable\n\
+                     3. The program was deployed with a different loader",
             program_id
         )),
-    }
+    })
 }
 
 pub fn get_genesis_hash(client: &RpcClient) -> anyhow::Result<String> {
-    let genesis_hash = client.get_genesis_hash()?;
-    Ok(genesis_hash.to_string())
+    retry_rpc_call(|| {
+        let genesis_hash = client.get_genesis_hash()?;
+        Ok(genesis_hash.to_string())
+    })
 }
 
 pub fn get_docker_resource_limits() -> Option<(String, String)> {
@@ -772,7 +780,9 @@ pub fn get_docker_resource_limits() -> Option<(String, String)> {
     } else {
         // Print message to user that they can set these environment variables to limit docker resources
         println!("No Docker resource limits are set.");
-        println!("You can set the SVB_DOCKER_MEMORY_LIMIT and SVB_DOCKER_CPU_LIMIT environment variables to limit Docker resources.");
+        println!(
+            "You can set the SVB_DOCKER_MEMORY_LIMIT and SVB_DOCKER_CPU_LIMIT environment variables to limit Docker resources."
+        );
         println!("For example: SVB_DOCKER_MEMORY_LIMIT=2g SVB_DOCKER_CPU_LIMIT=2.");
     }
     memory.zip(cpus)
@@ -1392,7 +1402,9 @@ pub async fn verify_from_repo(
                     check_signal(container_id_opt, temp_dir_opt);
                     let genesis_hash = get_genesis_hash(connection)?;
                     if genesis_hash != MAINNET_GENESIS_HASH {
-                        return Err(anyhow!("Remote verification only works with mainnet. Please omit the --remote flag to verify locally."));
+                        return Err(anyhow!(
+                            "Remote verification only works with mainnet. Please omit the --remote flag to verify locally."
+                        ));
                     }
 
                     let uploader = get_address_from_keypair_or_config(
@@ -1701,4 +1713,28 @@ fn find_relative_manifest_path_and_build_path(
                 "No valid Cargo.toml file found in the directory for the library-name {library_name}"
             ))
         })
+}
+
+fn retry_rpc_call<F, T>(mut rpc_call: F) -> anyhow::Result<T>
+where
+    F: FnMut() -> anyhow::Result<T>,
+{
+    let mut attempts = 0;
+    let mut delay = INITIAL_RETRY_DELAY_MS;
+
+    loop {
+        match rpc_call() {
+            Ok(result) => return Ok(result),
+            Err(err) if attempts < MAX_RETRIES => {
+                attempts += 1;
+                println!(
+                    "RPC call failed (attempt {}/{}) - retrying in {} ms... Error: {}",
+                    attempts, MAX_RETRIES, delay, err
+                );
+                _ = sleep(Duration::from_millis(delay));
+                delay *= 2;
+            }
+            Err(err) => return Err(err),
+        }
+    }
 }
