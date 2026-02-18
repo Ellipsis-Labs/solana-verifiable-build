@@ -16,6 +16,7 @@ use solana_loader_v3_interface::{get_program_data_address, state::UpgradeableLoa
 use solana_program::get_address_from_keypair_or_config;
 use solana_rpc_client::rpc_client::RpcClient;
 use solana_sdk::pubkey::Pubkey;
+use solana_sdk_ids::{bpf_loader, bpf_loader_deprecated, bpf_loader_upgradeable};
 use solana_transaction_status_client_types::UiTransactionEncoding;
 use std::{
     io::Read,
@@ -725,33 +726,83 @@ pub fn get_file_hash(filepath: &str) -> Result<String, std::io::Error> {
 pub fn get_buffer_hash(url: Option<String>, buffer_address: Pubkey) -> anyhow::Result<String> {
     let client = get_client(url, None);
     let offset = UpgradeableLoaderState::size_of_buffer_metadata();
-    let account_data = client.get_account_data(&buffer_address)?[offset..].to_vec();
+    let data = client.get_account_data(&buffer_address)?;
+    let account_data = data
+        .get(offset..)
+        .ok_or_else(|| {
+            anyhow::anyhow!(
+                "Buffer account {} appears invalid or incomplete. Expected at least {} bytes for metadata.",
+                buffer_address,
+                offset
+            )
+        })?
+        .to_vec();
+
     let program_hash = get_binary_hash(account_data);
     Ok(program_hash)
 }
 
 pub fn get_program_hash(client: &RpcClient, program_id: Pubkey) -> anyhow::Result<String> {
-    // First check if the program account exists
-    if client.get_account(&program_id).is_err() {
-        return Err(anyhow!("Program {} is not deployed", program_id));
-    }
+    let account = client
+        .get_account(&program_id)
+        .map_err(|e| anyhow!("Program {} is not deployed: {}", program_id, e))?;
 
-    let program_buffer = get_program_data_address(&program_id);
+    let owner = account.owner;
 
-    // Then check if the program data account exists
-    match client.get_account_data(&program_buffer) {
-        Ok(data) => {
+    match owner {
+        // Check if the program is owned by the upgradeable loader (Loader-v3)
+        // If so, the program data is in a separate program data account
+        owner_id if owner_id == bpf_loader_upgradeable::id() => {
+            let program_buffer = get_program_data_address(&program_id);
+
+            // Get the program data account
+            let data = client.get_account_data(&program_buffer).map_err(|e| {
+                anyhow!(
+                    "Could not find program data for {}: {}. This could mean:\n\
+                     1. The program is not deployed\n\
+                     2. The program is not upgradeable\n\
+                     3. The program was deployed with a different loader",
+                    program_id,
+                    e
+                )
+            })?;
+
             let offset = UpgradeableLoaderState::size_of_programdata_metadata();
-            let account_data = data[offset..].to_vec();
-            let program_hash = get_binary_hash(account_data);
-            Ok(program_hash)
+
+            let account_data = data
+                .get(offset..)
+                .ok_or_else(|| {
+                    anyhow!(
+                        "Program data account appears corrupted or incomplete. Expected at least {} bytes for metadata.",
+                        offset
+                    )
+                })?
+                .to_vec();
+
+            Ok(get_binary_hash(account_data))
         }
-        Err(_) => Err(anyhow!(
-            "Could not find program data for {}. This could mean:\n\
-             1. The program is not deployed\n\
-             2. The program is not upgradeable\n\
-             3. The program was deployed with a different loader",
-            program_id
+
+        // Check if the program is owned by the legacy BPF loaders (v1/v2)
+        // If so, the program data is stored in the program account's data
+        owner_id if owner_id == bpf_loader_deprecated::id() || owner_id == bpf_loader::id() => {
+            let program_data = account.data;
+
+            if program_data.is_empty() {
+                return Err(anyhow!(
+                    "Program {} has no data (legacy loader account empty)",
+                    program_id
+                ));
+            }
+
+            Ok(get_binary_hash(program_data))
+        }
+
+        // Unsupported loader
+        _ => Err(anyhow!(
+            "Unknown or unsupported program loader. \
+             Program {} is owned by {}. Supported loaders: BPF Loader v1, v2, or Upgradeable (loader-v3).",
+            program_id,
+            owner
         )),
     }
 }
@@ -772,7 +823,9 @@ pub fn get_docker_resource_limits() -> Option<(String, String)> {
     } else {
         // Print message to user that they can set these environment variables to limit docker resources
         println!("No Docker resource limits are set.");
-        println!("You can set the SVB_DOCKER_MEMORY_LIMIT and SVB_DOCKER_CPU_LIMIT environment variables to limit Docker resources.");
+        println!(
+            "You can set the SVB_DOCKER_MEMORY_LIMIT and SVB_DOCKER_CPU_LIMIT environment variables to limit Docker resources."
+        );
         println!("For example: SVB_DOCKER_MEMORY_LIMIT=2g SVB_DOCKER_CPU_LIMIT=2.");
     }
     memory.zip(cpus)
@@ -1086,10 +1139,7 @@ pub fn verify_from_image(
 
     let executable_hash: String = get_file_hash(program_filepath.as_str())?;
     let client = get_client(network, config_path);
-    let program_buffer = get_program_data_address(&program_id);
-    let offset = UpgradeableLoaderState::size_of_programdata_metadata();
-    let account_data = &client.get_account_data(&program_buffer)?[offset..];
-    let program_hash = get_binary_hash(account_data.to_vec());
+    let program_hash = get_program_hash(&client, program_id)?;
     println!("Executable hash: {}", executable_hash);
     println!("Program hash: {}", program_hash);
 
@@ -1392,7 +1442,9 @@ pub async fn verify_from_repo(
                     check_signal(container_id_opt, temp_dir_opt);
                     let genesis_hash = get_genesis_hash(connection)?;
                     if genesis_hash != MAINNET_GENESIS_HASH {
-                        return Err(anyhow!("Remote verification only works with mainnet. Please omit the --remote flag to verify locally."));
+                        return Err(anyhow!(
+                            "Remote verification only works with mainnet. Please omit the --remote flag to verify locally."
+                        ));
                     }
 
                     let uploader = get_address_from_keypair_or_config(

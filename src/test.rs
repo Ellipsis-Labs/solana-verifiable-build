@@ -180,4 +180,40 @@ mod tests {
         }
         Ok(())
     }
+
+    #[test]
+    fn test_get_program_hash_legacy_loader() -> anyhow::Result<()> {
+        const SPL_TOKEN_PROGRAM_ID: &str = "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA";
+        const EXPECTED_HASH: &str =
+            "d5a1793250f0f22efc7174bd8399570636e667655179642b2e90b0fb80e09106";
+        let args = ["get-program-hash", SPL_TOKEN_PROGRAM_ID];
+        let child = std::process::Command::new("./target/debug/solana-verify")
+            .args(args)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .context("Failed to execute solana-verify command")?;
+
+        let output = child
+            .wait_with_output()
+            .context("Failed to wait for solana-verify command")?;
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            anyhow::bail!(
+                "get-program-hash for legacy loader program failed: {}",
+                stderr
+            );
+        }
+
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let hash = stdout.trim();
+        assert_eq!(
+            hash, EXPECTED_HASH,
+            "Program hash {} does not match expected value {}",
+            hash, EXPECTED_HASH
+        );
+        Ok(())
+    }
 }
