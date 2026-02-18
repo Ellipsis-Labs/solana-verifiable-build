@@ -25,9 +25,9 @@ use std::{
         atomic::{AtomicBool, Ordering},
         Arc,
     },
+    thread::sleep,
     time::Duration,
 };
-use tokio::time::sleep;
 use uuid::Uuid;
 pub mod api;
 #[rustfmt::skip]
@@ -45,7 +45,7 @@ use crate::solana_program::{
 };
 
 const MAINNET_GENESIS_HASH: &str = "5eykt4UsFv8P8NJdTREpY1vzqKqZKvdpKuc147dw2N9d";
-const MAX_RETRIES: u32 = 5;
+const MAX_RETRIES: u32 = 3;
 const INITIAL_RETRY_DELAY_MS: u64 = 500;
 
 pub fn get_network(network_str: &str) -> &str {
@@ -1728,10 +1728,10 @@ where
             Err(err) if attempts < MAX_RETRIES => {
                 attempts += 1;
                 println!(
-                    "RPC call failed (attempt {}/{}) - retrying in {} ms... Error: {}",
-                    attempts, MAX_RETRIES, delay, err
+                    "RPC call failed (attempt {}/{}) - retrying in {} ms...",
+                    attempts, MAX_RETRIES, delay
                 );
-                _ = sleep(Duration::from_millis(delay));
+                sleep(Duration::from_millis(delay));
                 delay *= 2;
             }
             Err(err) => return Err(err),
