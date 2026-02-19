@@ -4462,6 +4462,7 @@ dependencies = [
  "solana-rpc-client",
  "solana-rpc-client-api",
  "solana-sdk",
+ "solana-sdk-ids",
  "solana-system-interface",
  "solana-transaction-status-client-types",
  "tokio",
