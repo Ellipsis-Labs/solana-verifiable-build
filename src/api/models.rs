@@ -15,14 +15,6 @@ pub struct VerifyResponse {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-pub struct StatusResponse {
-    pub is_verified: bool,
-    pub message: String,
-    pub on_chain_hash: String,
-    pub executable_hash: String,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
 pub struct ErrorResponse {
     pub status: Status,
     pub error: String,
@@ -37,7 +29,7 @@ pub struct JobResponse {
 impl std::fmt::Display for JobResponse {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         if let Some(response) = &self.respose {
-            writeln!(f, "{}", response)?;
+            writeln!(f, "{response}")?;
         } else {
             writeln!(f, "Status: {:?}", self.status)?;
         }
@@ -116,7 +108,7 @@ impl std::fmt::Display for RemoteStatusResponseWrapper {
                     "----------------------------------------------------------------"
                 )?;
             }
-            write!(f, "{}", response)?;
+            write!(f, "{response}")?;
         }
         Ok(())
     }
