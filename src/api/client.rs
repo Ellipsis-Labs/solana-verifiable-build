@@ -3,8 +3,8 @@ use crossbeam_channel::{unbounded, Receiver};
 use indicatif::{HumanDuration, ProgressBar, ProgressStyle};
 use reqwest::{Client, Response};
 use serde_json::json;
+use solana_address::Address;
 use solana_rpc_client::rpc_client::RpcClient;
-use solana_sdk::pubkey::Pubkey;
 use std::sync::atomic::Ordering;
 use std::thread;
 use std::time::{Duration, Instant};
@@ -91,8 +91,8 @@ fn print_verification_status(
 
 pub async fn send_job_with_uploader_to_remote(
     connection: &RpcClient,
-    program_id: &Pubkey,
-    uploader: &Pubkey,
+    program_id: &Address,
+    uploader: &Address,
 ) -> anyhow::Result<()> {
     // Check that PDA exists before sending job
     let genesis_hash = get_genesis_hash(connection)?;
@@ -123,7 +123,7 @@ pub async fn send_job_with_uploader_to_remote(
 pub async fn handle_submission_response(
     client: &Client,
     response: Response,
-    program_id: &Pubkey,
+    program_id: &Address,
 ) -> anyhow::Result<()> {
     if response.status().is_success() {
         // First get the raw text to preserve it in case of parsing failure
@@ -264,7 +264,7 @@ async fn check_job_status(client: &Client, request_id: &str) -> anyhow::Result<J
     }
 }
 
-pub async fn get_remote_status(program_id: Pubkey) -> anyhow::Result<()> {
+pub async fn get_remote_status(program_id: Address) -> anyhow::Result<()> {
     let client = Client::builder()
         .timeout(Duration::from_secs(18000))
         .build()?;
