@@ -25,6 +25,15 @@ Verified builds allow developers and users to verify that a deployed Solana prog
 solana-verify build
 ```
 
+For minimal programs that do not depend on `solana-program`, add a
+`verifiable-build.toml` file at the program root:
+
+```toml
+solana_version = "2.1.8"
+```
+
+If `--base-image` is provided, `verifiable-build.toml` is ignored.
+
 3. Deploy and verify:
 
 ```bash

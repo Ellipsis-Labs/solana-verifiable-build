@@ -19,7 +19,7 @@ use solana_sdk::pubkey::Pubkey;
 use solana_transaction_status_client_types::UiTransactionEncoding;
 use std::{
     io::Read,
-    path::PathBuf,
+    path::{Path, PathBuf},
     process::{Command, Output, Stdio},
     sync::{
         atomic::{AtomicBool, Ordering},
@@ -820,7 +820,7 @@ pub fn build(
     println!("Mounting path: {}", mount_path);
 
     let lockfile = format!("{}/Cargo.lock", mount_path);
-    if !std::path::Path::new(&lockfile).exists() {
+    if !Path::new(&lockfile).exists() {
         println!("Mount directory must contain a Cargo.lock file");
         return Err(anyhow!("Missing Cargo.lock file at '{}'", lockfile));
     }
@@ -832,30 +832,40 @@ pub fn build(
 
     let build_command = if bpf_flag { "build-bpf" } else { "build-sbf" };
 
-    let (major, minor, patch) = get_pkg_version_from_cargo_lock("solana-program", &lockfile)?;
-
+    let mut resolved_version: Option<(u32, u32, u32)> = None;
     let mut solana_version: Option<String> = None;
     let image: String = match base_image {
-        Some(base_image) => base_image,
+        Some(base_image) => {
+            println!(
+                "Base image explicitly provided; ignoring verifiable-build.toml and Cargo.lock for Docker image selection."
+            );
+            base_image
+        }
         None => {
             if bpf_flag {
                 // Use this for backwards compatibility with anchor verified builds
+                resolved_version = Some((1, 13, 5));
                 solana_version = Some("v1.13.5".to_string());
                 "projectserum/build@sha256:75b75eab447ebcca1f471c98583d9b5d82c4be122c470852a022afcf9c98bead".to_string()
-            } else if let Some(digest) = IMAGE_MAP.get(&(major, minor, patch)) {
-                println!(
-                    "Found docker image for Solana version {}.{}.{}",
-                    major, minor, patch
-                );
-                solana_version = Some(format!("v{}.{}.{}", major, minor, patch));
-                format!("solanafoundation/solana-verifiable-build@{}", digest)
             } else {
-                return Err(anyhow!(
-                    "No compatible Docker image found for Solana version {}.{}.{}",
-                    major,
-                    minor,
-                    patch
-                ));
+                let ((major, minor, patch), source) =
+                    resolve_solana_version_for_image_selection(&mount_path, &lockfile)?;
+                resolved_version = Some((major, minor, patch));
+                println!(
+                    "Resolved Solana version v{}.{}.{} from {}",
+                    major, minor, patch, source
+                );
+                if let Some(digest) = IMAGE_MAP.get(&(major, minor, patch)) {
+                    solana_version = Some(format!("v{}.{}.{}", major, minor, patch));
+                    format!("solanafoundation/solana-verifiable-build@{}", digest)
+                } else {
+                    return Err(anyhow!(
+                        "No compatible Docker image found for Solana version {}.{}.{}",
+                        major,
+                        minor,
+                        patch
+                    ));
+                }
             }
         }
     };
@@ -924,7 +934,7 @@ pub fn build(
 
     // Solana v1.17 uses Rust 1.73, which defaults to the sparse registry, making
     // this fetch unnecessary, but requires us to omit the "frozen" argument
-    let locked_args = if major == 1 && minor < 17 {
+    let locked_args = if matches!(resolved_version, Some((1, minor, _)) if minor < 17) {
         // First, we resolve the dependencies and cache them in the Docker container
         // ARM processors running Linux have a bug where the build fails if the dependencies are not preloaded.
         // Running the build without the pre-fetch will cause the container to run out of memory.
@@ -978,7 +988,11 @@ pub fn build(
     ensure!(output.status.success(), "Failed to cargo build");
 
     println!("Finished building program");
-    println!("Program Solana version: v{}.{}.{}", major, minor, patch);
+    if let Some((major, minor, patch)) = resolved_version {
+        println!("Program Solana version: v{}.{}.{}", major, minor, patch);
+    } else {
+        println!("Program Solana version: unknown (base image was explicitly provided)");
+    }
 
     if let Some(solana_version) = solana_version {
         println!("Docker image Solana version: {}", solana_version);
@@ -1003,6 +1017,92 @@ pub fn build(
     ensure!(output.status.success(), "Failed to find the program binary");
 
     Ok(())
+}
+
+fn parse_solana_semver(version: &str) -> anyhow::Result<(u32, u32, u32)> {
+    let mut parts = version.trim().split('.');
+    let major = parts
+        .next()
+        .ok_or_else(|| anyhow!("Version is missing major number"))?
+        .parse::<u32>()
+        .map_err(|_| anyhow!("Major version is not numeric"))?;
+    let minor = parts
+        .next()
+        .ok_or_else(|| anyhow!("Version is missing minor number"))?
+        .parse::<u32>()
+        .map_err(|_| anyhow!("Minor version is not numeric"))?;
+    let patch = parts
+        .next()
+        .ok_or_else(|| anyhow!("Version is missing patch number"))?
+        .parse::<u32>()
+        .map_err(|_| anyhow!("Patch version is not numeric"))?;
+    ensure!(
+        parts.next().is_none(),
+        "Version must be in the format X.Y.Z"
+    );
+    Ok((major, minor, patch))
+}
+
+fn get_solana_version_from_verifiable_build_config(
+    mount_path: &str,
+) -> anyhow::Result<Option<(u32, u32, u32)>> {
+    let config_path = PathBuf::from(mount_path).join("verifiable-build.toml");
+    if !config_path.exists() {
+        return Ok(None);
+    }
+
+    let config_content = std::fs::read_to_string(&config_path)?;
+    for line in config_content.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() || trimmed.starts_with('#') || trimmed.starts_with('[') {
+            continue;
+        }
+
+        let Some((key, value_with_comment)) = trimmed.split_once('=') else {
+            continue;
+        };
+        if key.trim() != "solana_version" {
+            continue;
+        }
+
+        let value = value_with_comment
+            .split('#')
+            .next()
+            .unwrap_or_default()
+            .trim()
+            .trim_matches('"')
+            .trim_matches('\'');
+        let version = parse_solana_semver(value).map_err(|err| {
+            anyhow!(
+                "Invalid `solana_version` in '{}': {}",
+                config_path.display(),
+                err
+            )
+        })?;
+        return Ok(Some(version));
+    }
+
+    Err(anyhow!(
+        "Failed to parse `solana_version` from '{}'. Expected top-level `solana_version = \"X.Y.Z\"`.",
+        config_path.display()
+    ))
+}
+
+fn resolve_solana_version_for_image_selection(
+    mount_path: &str,
+    lockfile: &str,
+) -> anyhow::Result<((u32, u32, u32), &'static str)> {
+    if let Some(version) = get_solana_version_from_verifiable_build_config(mount_path)? {
+        return Ok((version, "verifiable-build.toml"));
+    }
+
+    if let Ok(version) = get_pkg_version_from_cargo_lock("solana-program", lockfile) {
+        return Ok((version, "Cargo.lock (solana-program)"));
+    }
+
+    Err(anyhow!(
+        "Failed to resolve Solana version for Docker image selection. Add `verifiable-build.toml` with `solana_version = \"X.Y.Z\"`, or include `solana-program` in Cargo.lock, or pass `--base-image`."
+    ))
 }
 
 #[allow(clippy::too_many_arguments)]
