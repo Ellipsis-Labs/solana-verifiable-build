@@ -52,6 +52,57 @@ mod tests {
         Ok(())
     }
 
+    fn test_local_build_hash_helper(
+        build_path: &str,
+        executable_path: &str,
+        expected_hash: &str,
+    ) -> anyhow::Result<()> {
+        let build_args = ["build", build_path];
+        let child = std::process::Command::new("./target/debug/solana-verify")
+            .args(build_args)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .context("Failed to execute solana-verify build command")?;
+
+        let output = child
+            .wait_with_output()
+            .context("Failed to wait for solana-verify build command")?;
+
+        if !output.status.success() {
+            let error = String::from_utf8_lossy(&output.stderr);
+            anyhow::bail!("Command failed: {}", error);
+        }
+
+        let hash_args = ["get-executable-hash", executable_path];
+        let child = std::process::Command::new("./target/debug/solana-verify")
+            .args(hash_args)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .context("Failed to execute solana-verify get-executable-hash command")?;
+
+        let output = child
+            .wait_with_output()
+            .context("Failed to wait for solana-verify get-executable-hash command")?;
+
+        if !output.status.success() {
+            let error = String::from_utf8_lossy(&output.stderr).trim().to_string();
+            anyhow::bail!("Command failed: {}", error);
+        }
+
+        let hash = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        assert_eq!(
+            hash, expected_hash,
+            "Program hash {} does not match expected value {}",
+            hash, expected_hash
+        );
+
+        Ok(())
+    }
+
     #[test]
     fn test_phoenix_v1() -> anyhow::Result<()> {
         const EXPECTED_HASH: &str =
@@ -110,53 +161,22 @@ mod tests {
     fn test_local_example() -> anyhow::Result<()> {
         const EXPECTED_HASH: &str =
             "08d91368d349c2b56c712422f6d274a1e8f1946ff2ecd1dc3efc3ebace52a760";
+        test_local_build_hash_helper(
+            "./examples/hello_world",
+            "./examples/hello_world/target/deploy/hello_world.so",
+            EXPECTED_HASH,
+        )
+    }
 
-        let args: Vec<&str> = "build ./examples/hello_world".split(" ").collect();
-        let child = std::process::Command::new("./target/debug/solana-verify")
-            .args(args)
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
-            .context("Failed to execute solana-verify command")?;
-
-        let output = child
-            .wait_with_output()
-            .context("Failed to wait for solana-verify command")?;
-
-        if !output.status.success() {
-            let error = String::from_utf8_lossy(&output.stderr);
-            anyhow::bail!("Command failed: {}", error);
-        }
-
-        let args: Vec<&str> =
-            "get-executable-hash ./examples/hello_world/target/deploy/hello_world.so"
-                .split(" ")
-                .collect();
-        let child = std::process::Command::new("./target/debug/solana-verify")
-            .args(&args)
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
-            .context("Failed to execute solana-verify command")?;
-
-        let output = child
-            .wait_with_output()
-            .context("Failed to wait for solana-verify command")?;
-
-        if !output.status.success() {
-            let error = String::from_utf8_lossy(&output.stderr).trim().to_string();
-            anyhow::bail!("Command failed: {}", error);
-        }
-
-        let hash = String::from_utf8_lossy(&output.stdout).trim().to_string();
-        assert_eq!(
-            hash, EXPECTED_HASH,
-            "Program hash {} does not match expected value {}",
-            hash, EXPECTED_HASH
-        );
-        Ok(())
+    #[test]
+    fn test_local_pinocchio_example() -> anyhow::Result<()> {
+        const EXPECTED_HASH: &str =
+            "ea119a63af208616d504b0742c01551d3edf56d55554a922448b0d8d0844c374";
+        test_local_build_hash_helper(
+            "./examples/hello_world_pinocchio",
+            "./examples/hello_world_pinocchio/target/deploy/hello_world.so",
+            EXPECTED_HASH,
+        )
     }
 
     #[test]
