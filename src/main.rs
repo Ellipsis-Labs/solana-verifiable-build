@@ -137,6 +137,10 @@ async fn main() -> anyhow::Result<()> {
             .arg(Arg::with_name("mount-directory")
                 .help("Path to mount to the docker image")
                 .takes_value(true))
+            .arg(Arg::with_name("workspace-path")
+                .long("workspace-path")
+                .takes_value(true)
+                .help("Path to the workspace root (for monorepos). Defaults to mount path. Use when the program is in a separate workspace that references other crates in the repo."))
             .arg(Arg::with_name("library-name")
                 .long("library-name")
                 .takes_value(true)
@@ -208,6 +212,11 @@ async fn main() -> anyhow::Result<()> {
                 .takes_value(true)
                 .default_value("")
                 .help("Relative path to the root directory or the source code repository from which to build the program"))
+            .arg(Arg::with_name("workspace-path")
+                .long("workspace-path")
+                .takes_value(true)
+                .default_value("")
+                .help("Relative path to the program workspace (for monorepos). Use when the program is in a separate workspace that references other crates. Defaults to mount-path."))
             .arg(Arg::with_name("repo-url")
                 .required(true)
                 .help("The HTTPS URL of the repo to clone"))
@@ -275,6 +284,11 @@ async fn main() -> anyhow::Result<()> {
                 .takes_value(true)
                 .default_value("")
                 .help("Relative path to the root directory or the source code repository from which to build the program"))
+            .arg(Arg::with_name("workspace-path")
+                .long("workspace-path")
+                .takes_value(true)
+                .default_value("")
+                .help("Relative path to the program workspace (for monorepos). Use when the program is in a separate workspace that references other crates. Defaults to mount-path."))
             .arg(Arg::with_name("repo-url")
                 .required(true)
                 .help("The HTTPS URL of the repo to clone"))
@@ -390,6 +404,7 @@ async fn main() -> anyhow::Result<()> {
     let res = match matches.subcommand() {
         ("build", Some(sub_m)) => {
             let mount_directory = sub_m.value_of("mount-directory").map(|s| s.to_string());
+            let workspace_path = sub_m.value_of("workspace-path").map(|s| s.to_string());
             let library_name = sub_m.value_of("library-name").map(|s| s.to_string());
             let base_image = sub_m.value_of("base-image").map(|s| s.to_string());
             let bpf_flag = sub_m.is_present("bpf");
@@ -401,6 +416,7 @@ async fn main() -> anyhow::Result<()> {
                 .collect();
             build(
                 mount_directory,
+                workspace_path,
                 library_name,
                 base_image,
                 bpf_flag,
@@ -450,6 +466,7 @@ async fn main() -> anyhow::Result<()> {
             let skip_build = sub_m.is_present("skip-build");
             let remote = sub_m.is_present("remote");
             let mount_path = sub_m.value_of("mount-path").map(|s| s.to_string()).unwrap();
+            let workspace_path = sub_m.value_of("workspace-path").map(|s| s.to_string()).unwrap_or_default();
             let repo_url = sub_m.value_of("repo-url").map(|s| s.to_string()).unwrap();
             let program_id = sub_m.value_of("program-id").unwrap();
             if remote {
@@ -480,6 +497,7 @@ async fn main() -> anyhow::Result<()> {
             println!("Skipping prompt: {skip_prompt}");
             verify_from_repo(
                 mount_path,
+                workspace_path,
                 &connection,
                 repo_url,
                 Some(commit_hash),
@@ -519,6 +537,7 @@ async fn main() -> anyhow::Result<()> {
         ("export-pda-tx", Some(sub_m)) => {
             let uploader = sub_m.value_of("uploader").unwrap();
             let mount_path = sub_m.value_of("mount-path").map(|s| s.to_string()).unwrap();
+            let workspace_path = sub_m.value_of("workspace-path").map(|s| s.to_string()).unwrap_or_default();
             let repo_url = sub_m.value_of("repo-url").map(|s| s.to_string()).unwrap();
             let program_id = sub_m.value_of("program-id").unwrap();
             let base_image = sub_m.value_of("base-image").map(|s| s.to_string());
@@ -561,6 +580,7 @@ async fn main() -> anyhow::Result<()> {
                 repo_url,
                 commit_hash,
                 mount_path,
+                workspace_path,
                 library_name,
                 base_image,
                 bpf_flag,
@@ -848,9 +868,10 @@ fn setup_offline_build(mount_path: &str) -> anyhow::Result<()> {
     println!("Successfully set up offline build configuration");
     Ok(())
 }
-
+#[allow(clippy::too_many_arguments)]
 pub fn build(
     mount_directory: Option<String>,
+    workspace_root: Option<String>,
     library_name: Option<String>,
     base_image: Option<String>,
     bpf_flag: bool,
@@ -868,7 +889,13 @@ pub fn build(
     mount_path = mount_path.trim_end_matches('/').to_string();
     println!("Mounting path: {mount_path}");
 
-    let lockfile = format!("{mount_path}/Cargo.lock");
+    let workspace_path = workspace_root
+        .unwrap_or_else(|| mount_path.clone())
+        .trim_end_matches('/')
+        .to_string();
+    println!("Workspace path: {}", workspace_path);
+
+    let lockfile = format!("{}/Cargo.lock", workspace_path);
     if !std::path::Path::new(&lockfile).exists() {
         println!("Mount directory must contain a Cargo.lock file");
         return Err(anyhow!("Missing Cargo.lock file at '{lockfile}'"));
@@ -876,7 +903,7 @@ pub fn build(
 
     // Check if --offline flag is present in cargo_args
     if cargo_args.contains(&"--offline".to_string()) {
-        setup_offline_build(&mount_path)?;
+        setup_offline_build(&workspace_path)?;
     }
 
     let build_command = if bpf_flag { "build-bpf" } else { "build-sbf" };
@@ -1026,7 +1053,7 @@ pub fn build(
     if let Some(program_name) = library_name {
         let executable_path = std::process::Command::new("find")
             .args([
-                &format!("{mount_path}/target/deploy"),
+                &format!("{}/target/deploy", workspace_path),
                 "-name",
                 &format!("{program_name}.so"),
             ])
@@ -1147,23 +1174,37 @@ pub fn verify_from_image(
     }
     Ok(())
 }
-
+#[allow(clippy::too_many_arguments)]
 fn build_args(
     relative_mount_path: &str,
+    relative_workspace_path: &str,
     library_name_opt: Option<String>,
     verify_tmp_root_path: &str,
     base_image: Option<String>,
     bpf_flag: bool,
     arch: Option<String>,
     cargo_args: Vec<String>,
-) -> anyhow::Result<(Vec<String>, String, String)> {
+) -> anyhow::Result<(Vec<String>, String, String, String)> {
     let mut args: Vec<String> = Vec::new();
     if !relative_mount_path.is_empty() {
         args.push("--mount-path".to_string());
         args.push(relative_mount_path.to_string());
     }
+    if !relative_workspace_path.is_empty() {
+        args.push("--workspace-path".to_string());
+        args.push(relative_workspace_path.to_string());
+    }
     // Get the absolute build path to the solana program directory to build inside docker
     let mount_path = PathBuf::from(verify_tmp_root_path).join(relative_mount_path);
+    let workspace_path = if relative_workspace_path.is_empty() {
+        mount_path.to_str().unwrap().to_string()
+    } else {
+        PathBuf::from(verify_tmp_root_path)
+            .join(relative_workspace_path)
+            .to_str()
+            .unwrap()
+            .to_string()
+    };
 
     args.push("--library-name".to_string());
     let library_name = match library_name_opt.clone() {
@@ -1230,7 +1271,12 @@ fn build_args(
         }
     }
 
-    Ok((args, mount_path.to_str().unwrap().to_string(), library_name))
+    Ok((
+        args,
+        mount_path.to_str().unwrap().to_string(),
+        workspace_path,
+        library_name,
+    ))
 }
 
 fn clone_repo_and_checkout(
@@ -1316,6 +1362,7 @@ fn get_basename(repo_url: &str) -> anyhow::Result<String> {
 #[allow(clippy::too_many_arguments)]
 pub async fn verify_from_repo(
     relative_mount_path: String,
+    relative_workspace_path: String,
     connection: &RpcClient,
     repo_url: String,
     commit_hash: Option<String>,
@@ -1350,8 +1397,9 @@ pub async fn verify_from_repo(
 
     check_signal(container_id_opt, temp_dir_opt);
 
-    let (args, mount_path, library_name) = build_args(
+    let (args, mount_path, workspace_path, library_name) = build_args(
         &relative_mount_path,
+        &relative_workspace_path,
         library_name_opt.clone(),
         &verify_tmp_root_path,
         base_image.clone(),
@@ -1361,6 +1409,7 @@ pub async fn verify_from_repo(
     )?;
     println!("Build path: {mount_path:?}");
     println!("Verifying program: {library_name}");
+    println!("Workspace path: {:?}", workspace_path);
 
     run_preflight_checks(&mount_path, &library_name)?;
 
@@ -1369,6 +1418,7 @@ pub async fn verify_from_repo(
     let result: Result<(String, String), anyhow::Error> = if !skip_build {
         build_and_verify_repo(
             mount_path,
+            workspace_path,
             base_image.clone(),
             bpf_flag,
             arch.clone(),
@@ -1430,6 +1480,7 @@ pub async fn verify_from_repo(
 #[allow(clippy::too_many_arguments)]
 pub fn build_and_verify_repo(
     mount_path: String,
+    workspace_path: String,
     base_image: Option<String>,
     bpf_flag: bool,
     arch: Option<String>,
@@ -1443,7 +1494,8 @@ pub fn build_and_verify_repo(
     let executable_filename = format!("{library_name}.so");
     build(
         Some(mount_path.clone()),
-        Some(library_name),
+        Some(workspace_path.clone()),
+        Some(library_name.clone()),
         base_image,
         bpf_flag,
         arch,
@@ -1454,7 +1506,7 @@ pub fn build_and_verify_repo(
     // Get the hash of the build
     let executable_path = std::process::Command::new("find")
         .args([
-            &format!("{mount_path}/target/deploy"),
+            &format!("{}/target/deploy", workspace_path),
             "-name",
             executable_filename.as_str(),
         ])
@@ -1588,6 +1640,7 @@ async fn export_pda_tx(
     repo_url: String,
     commit_hash: String,
     mount_path: String,
+    workspace_path: String,
     library_name: Option<String>,
     base_image: Option<String>,
     bpf_flag: bool,
@@ -1615,6 +1668,7 @@ async fn export_pda_tx(
         commit: commit_hash.clone(),
         args: build_args(
             &mount_path,
+            &workspace_path,
             library_name.clone(),
             &temp_root_path,
             base_image.clone(),
