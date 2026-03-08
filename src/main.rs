@@ -5,7 +5,7 @@ use api::{
 use base64::{prelude::BASE64_STANDARD, Engine};
 use bincode::serialize;
 use cargo_lock::Lockfile;
-use cargo_toml::Manifest;
+use cargo_toml::{Manifest, Value};
 use clap::{App, AppSettings, Arg, ArgMatches, SubCommand};
 use signal_hook::{
     consts::{SIGINT, SIGTERM},
@@ -883,7 +883,18 @@ pub fn build(
 
     let build_command = if bpf_flag { "build-bpf" } else { "build-sbf" };
 
-    let (major, minor, patch) = get_pkg_version_from_cargo_lock("solana-program", &lockfile)?;
+    let (major, minor, patch) = match get_pkg_version_from_cargo_lock("solana-program", &lockfile) {
+        Ok(version) => version,
+        Err(_) => {
+            let root_toml = format!("{}/Cargo.toml", mount_path);
+            get_pkg_version_from_cargo_toml(&root_toml).map_err(|_| {
+                anyhow!(
+                    "Failed to parse solana-program version from Cargo.lock \
+            and solana version from [workspace.metadata.cli] entry in Cargo.toml"
+                )
+            })?
+        }
+    };
 
     let mut solana_version: Option<String> = None;
     let image: String = match base_image {
@@ -1560,6 +1571,28 @@ pub fn get_pkg_version_from_cargo_lock(
         .next()
         .ok_or_else(|| anyhow!("Failed to parse solana-program version from Cargo.lock"))?;
     Ok(res)
+}
+
+pub fn get_pkg_version_from_cargo_toml(cargo_toml_file: &str) -> anyhow::Result<(u32, u32, u32)> {
+    let manifest = Manifest::from_path(cargo_toml_file)?;
+    if let Some(Value::String(version)) = manifest
+        .workspace
+        .as_ref()
+        .and_then(|workspace| workspace.metadata.as_ref())
+        .and_then(|metadata| metadata.get("cli"))
+        .and_then(|cli| cli.get("solana"))
+    {
+        let version_parts: Vec<&str> = version.split(".").collect();
+        if version_parts.len() == 3 {
+            let major = version_parts[0].parse::<u32>().unwrap_or(0);
+            let minor = version_parts[1].parse::<u32>().unwrap_or(0);
+            let patch = version_parts[2].parse::<u32>().unwrap_or(0);
+            return Ok((major, minor, patch));
+        }
+    }
+    Err(anyhow!(
+        "Failed to parse solana-program version from Cargo.lock"
+    ))
 }
 
 pub fn get_lib_name_from_cargo_toml(cargo_toml_file: &str) -> anyhow::Result<String> {
