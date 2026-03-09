@@ -45,5 +45,6 @@ features = [
     # Lets you generate random UUIDs
     "fast-rng",
     # Use a faster (but still sufficiently random) RNG
-    "macro-diagnostics", # Enable better diagnostics for compile-time UUIDs
+    # Enable better diagnostics for compile-time UUIDs
+    "macro-diagnostics",
 ]
