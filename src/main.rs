@@ -1735,6 +1735,7 @@ fn run_preflight_checks(mount_path: &str, library_name: &str) -> anyhow::Result<
 
     println!("Pre-flight checks passed ✅");
     Ok(())
+}
 
 fn retry_rpc_call<F, T>(mut rpc_call: F) -> anyhow::Result<T>
 where
@@ -1746,7 +1747,7 @@ where
     loop {
         match rpc_call() {
             Ok(result) => return Ok(result),
-            Err(err) if attempts < MAX_RETRIES => {
+            Err(_err) if attempts < MAX_RETRIES => {
                 attempts += 1;
                 println!(
                     "RPC call failed (attempt {}/{}) - retrying in {} ms...",
