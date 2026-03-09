@@ -17,5 +17,5 @@ unexpected_cfgs = { level = "warn", check-cfg = [
 ] }
 
 # CLI first check, then Cargo.lock fallback
-# [workspace.metadata.cli]
-# solana = "3.0.7"
+[workspace.metadata.cli]
+solana = "3.0.7"
