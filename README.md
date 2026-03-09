@@ -25,6 +25,15 @@ Verified builds allow developers and users to verify that a deployed Solana prog
 solana-verify build
 ```
 
+For programs that don't depend on `solana-program` (e.g. SDK v3 or pinocchio), add the Solana CLI version in your root `Cargo.toml` so the tool can pick the right build image:
+
+```toml
+[workspace.metadata.cli]
+solana = "3.0.0"
+```
+
+The tool checks this first, then falls back to `Cargo.lock` (solana-program, solana-program-error, or solana-account-info).
+
 3. Deploy and verify:
 
 ```bash
