@@ -883,24 +883,19 @@ pub fn build(
 
     let build_command = if bpf_flag { "build-bpf" } else { "build-sbf" };
 
-    // Resolve Solana version: [workspace.metadata.cli] first, then Cargo.lock fallback
-    let version_opt = get_solana_version_from_workspace_metadata(&mount_path)
-        .or_else(|| get_solana_version_from_lockfile(&lockfile).ok());
-
     let mut solana_version: Option<String> = None;
-    let (major, minor, patch);
+    let (mut major, mut minor, mut patch) = (0, 0, 0);
     let image: String = match base_image {
-        Some(base_image) => {
-            // When a custom base image is provided, use resolved version or (0,0,0) so build doesn't fail
-            (major, minor, patch) = version_opt.unwrap_or((0, 0, 0));
-            base_image
-        }
+        Some(base_image) => base_image,
         None => {
-            (major, minor, patch) = version_opt.ok_or_else(|| {
-                anyhow!(
-                    "Failed to determine Solana version: not found in [workspace.metadata.cli] in Cargo.toml nor in Cargo.lock"
-                )
-            })?;
+            // Resolve Solana version: [workspace.metadata.cli] first, then Cargo.lock fallback
+            (major, minor, patch) = get_solana_version_from_workspace_metadata(&mount_path)
+                .or_else(|| get_solana_version_from_lockfile(&lockfile).ok())
+                .ok_or_else(|| {
+                    anyhow!(
+                        "Failed to determine Solana version: not found in [workspace.metadata.cli] in Cargo.toml nor in Cargo.lock"
+                    )
+                })?;
             if bpf_flag {
                 // Use this for backwards compatibility with anchor verified builds
                 solana_version = Some("v1.13.5".to_string());
