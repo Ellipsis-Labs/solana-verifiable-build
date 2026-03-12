@@ -264,6 +264,20 @@ lazy_static! {
         m.insert((3, 0, 5), "sha256:a09764bd9ca24f1306df834eea2026cfd4d33d58b0cc0aa554bed13dba37243c");
         m.insert((3, 0, 6), "sha256:0b8eca48695ee6388716f234d899eabf0c245b8a4e91510a1c2784385e3f6326");
         m.insert((3, 0, 7), "sha256:19b255975a8064ecb6d994c5ab57c8c551770a1c77c6ac09fb176fe1fcb0947f");
+        m.insert((3, 0, 8), "sha256:0ee8bb3b1a39389fb7f8cd69f46681fbd7d2d7597311353f55fd01ef626440bf");
+        m.insert((3, 0, 9), "sha256:bba47ce5a3aa62d4142d39e76a10fa203e79576b10255d0faca649b74b20904a");
+        m.insert((3, 0, 10), "sha256:d09a5671d1eadcf7d317a37d80aeea03d36dd50ac252c9da78c872ad8218c2f2");
+        m.insert((3, 0, 11), "sha256:aa736d63f7650cb0c4f842d91f8842f0cbce77d4bb86d75b02c742c5d23ff291");
+        m.insert((3, 0, 12), "sha256:c5f99b09ac45988ba90d5f9296c89de25bceae9eb9ddc0ec5015dae3b360fd73");
+        m.insert((3, 0, 13), "sha256:4fd2a8779ed5ca08e66e8a4815dfe05b1cb31c3697a32e56abdf00565ee6a5d1");
+        m.insert((3, 0, 14), "sha256:75d7799dd5a3c2e2eeb8294e17879e53367d66f3a0d9bb479d848c3799afa9b4");
+        m.insert((3, 1, 1), "sha256:3e4e350a55a08de885e655d57118df5f0de966652065e7ea3c72931b48abf01a");
+        m.insert((3, 1, 2), "sha256:7cc1909a71315aa9c321178fa759b8e404f454223aa302d4fc31c59cf8c3d4f1");
+        m.insert((3, 1, 3), "sha256:e6caeec2723779fcd6d3c605f75d22319f63a9302979fe1604fb2f5ad2fb875e");
+        m.insert((3, 1, 4), "sha256:fc8fc77dadea6d9e0fe7591725f765e19473eb77878354e11272bf35de72d0ed");
+        m.insert((3, 1, 5), "sha256:bbcff53ff5f9d46bb3d81475130e460389ee730b0b6f9ae2513505aa4257fd92");
+        m.insert((3, 1, 6), "sha256:3381fd99f0d682a4068266bab8d9826210f2218a1f582d2132c8d30da5cdab74");
+        m.insert((3, 1, 7), "sha256:3a8e3d099110bc1baf7d55012298fa7344a7796ff63b7e5ffa1f13e90841d11f");
         m
     };
 }
