@@ -3882,6 +3882,7 @@ dependencies = [
  "solana-loader-v3-interface",
  "solana-rpc-client",
  "solana-rpc-client-api",
+ "solana-sdk-ids",
  "solana-system-interface 3.1.0",
  "solana-transaction",
  "solana-transaction-status-client-types",
