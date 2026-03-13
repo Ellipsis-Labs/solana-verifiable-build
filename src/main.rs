@@ -442,7 +442,7 @@ async fn main() -> anyhow::Result<()> {
         }
         ("get-program-hash", Some(sub_m)) => {
             let program_id = sub_m.value_of("program-id").unwrap();
-            let program_hash = get_program_hash(&connection, Pubkey::try_from(program_id)?)?;
+            let program_hash = get_program_hash(&connection, Address::try_from(program_id)?)?;
             println!("{program_hash}");
             Ok(())
         }
@@ -1531,7 +1531,7 @@ pub fn get_pkg_name_from_cargo_toml(cargo_toml_file: &str) -> Option<String> {
 
 pub fn print_build_params(address: &Address, build_params: &OtterBuildParams) {
     println!("----------------------------------------------------------------");
-    println!("Address: {pubkey:?}");
+    println!("Address: {address:?}");
     println!("----------------------------------------------------------------");
     println!("{build_params}");
 }
