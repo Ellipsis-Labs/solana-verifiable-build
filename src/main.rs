@@ -5,7 +5,7 @@ use api::{
 use base64::{prelude::BASE64_STANDARD, Engine};
 use bincode::serialize;
 use cargo_lock::Lockfile;
-use cargo_toml::Manifest;
+use cargo_toml::{Manifest, Value};
 use clap::{App, AppSettings, Arg, ArgMatches, SubCommand};
 use signal_hook::{
     consts::{SIGINT, SIGTERM},
@@ -883,12 +883,19 @@ pub fn build(
 
     let build_command = if bpf_flag { "build-bpf" } else { "build-sbf" };
 
-    let (major, minor, patch) = get_pkg_version_from_cargo_lock("solana-program", &lockfile)?;
-
     let mut solana_version: Option<String> = None;
+    let (mut major, mut minor, mut patch) = (0, 0, 0);
     let image: String = match base_image {
         Some(base_image) => base_image,
         None => {
+            // Resolve Solana version: [workspace.metadata.cli] first, then Cargo.lock fallback
+            (major, minor, patch) = get_solana_version_from_workspace_metadata(&mount_path)
+                .or_else(|| get_solana_version_from_lockfile(&lockfile).ok())
+                .ok_or_else(|| {
+                    anyhow!(
+                        "Failed to determine Solana version: not found in [workspace.metadata.cli] in Cargo.toml nor in Cargo.lock"
+                    )
+                })?;
             if bpf_flag {
                 // Use this for backwards compatibility with anchor verified builds
                 solana_version = Some("v1.13.5".to_string());
@@ -1531,6 +1538,40 @@ pub fn parse_output(output: Output) -> anyhow::Result<String> {
     Ok(parsed_output)
 }
 
+/// Reads Solana version from `[workspace.metadata.cli]` solana = "x.y.z" in the root Cargo.toml
+pub fn get_solana_version_from_workspace_metadata(workspace_root: &str) -> Option<(u32, u32, u32)> {
+    let path = format!("{}/Cargo.toml", workspace_root.trim_end_matches('/'));
+    let manifest = Manifest::from_path(&path).ok()?;
+    if let Some(Value::String(version)) = manifest
+        .workspace
+        .as_ref()
+        .and_then(|w| w.metadata.as_ref())
+        .and_then(|m| m.get("cli"))
+        .and_then(|cli| cli.get("solana"))
+    {
+        let parts: Vec<&str> = version.split('.').collect();
+        if parts.len() == 3 {
+            let major = parts[0].parse::<u32>().ok()?;
+            let minor = parts[1].parse::<u32>().ok()?;
+            let patch = parts[2].parse::<u32>().ok()?;
+            return Some((major, minor, patch));
+        }
+    }
+    None
+}
+
+/// Tries solana-program, then solana-program-error, then solana-account-info in Cargo.lock
+pub fn get_solana_version_from_lockfile(lockfile: &str) -> anyhow::Result<(u32, u32, u32)> {
+    get_pkg_version_from_cargo_lock("solana-program", lockfile)
+        .or_else(|_| get_pkg_version_from_cargo_lock("solana-program-error", lockfile))
+        .or_else(|_| get_pkg_version_from_cargo_lock("solana-account-info", lockfile))
+        .map_err(|_| {
+            anyhow!(
+                "Failed to determine Solana version from Cargo.lock (tried solana-program, solana-program-error, solana-account-info)"
+            )
+        })
+}
+
 pub fn get_pkg_version_from_cargo_lock(
     package_name: &str,
     cargo_lock_file: &str,
@@ -1552,7 +1593,7 @@ pub fn get_pkg_version_from_cargo_lock(
             None
         })
         .next()
-        .ok_or_else(|| anyhow!("Failed to parse solana-program version from Cargo.lock"))?;
+        .ok_or_else(|| anyhow!("Failed to parse {} version from Cargo.lock", package_name))?;
     Ok(res)
 }
 
@@ -1757,7 +1798,7 @@ where
     loop {
         match rpc_call() {
             Ok(result) => return Ok(result),
-            Err(err) if attempts < MAX_RETRIES => {
+            Err(_err) if attempts < MAX_RETRIES => {
                 attempts += 1;
                 println!(
                     "RPC call failed (attempt {}/{}) - retrying in {} ms...",

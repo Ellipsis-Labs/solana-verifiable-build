@@ -1,0 +1,21 @@
+[package]
+name = "hello_world"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib", "lib"]
+name = "hello_world"
+
+[dependencies]
+pinocchio = "0.10.1" 
+solana-program-log = "1.1.0"
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = [
+    'cfg(target_os, values("solana"))',
+] }
+
+# CLI first check, then Cargo.lock fallback
+[workspace.metadata.cli]
+solana = "3.0.7"
