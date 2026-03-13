@@ -11,10 +11,10 @@ use signal_hook::{
     consts::{SIGINT, SIGTERM},
     iterator::Signals,
 };
+use solana_address::Address;
 use solana_cli_config::{Config, CONFIG_FILE};
 use solana_loader_v3_interface::{get_program_data_address, state::UpgradeableLoaderState};
 use solana_rpc_client::rpc_client::RpcClient;
-use solana_sdk::pubkey::Pubkey;
 use solana_sdk_ids::{bpf_loader, bpf_loader_deprecated, bpf_loader_upgradeable};
 use solana_transaction_status_client_types::UiTransactionEncoding;
 use std::{
@@ -419,7 +419,7 @@ async fn main() -> anyhow::Result<()> {
                 image.to_string(),
                 matches.value_of("url").map(|s| s.to_string()),
                 config_path.clone(),
-                Pubkey::try_from(program_id)?,
+                Address::try_from(program_id)?,
                 current_dir,
                 &mut temp_dir,
                 &mut container_id,
@@ -435,7 +435,7 @@ async fn main() -> anyhow::Result<()> {
             let buffer_address = sub_m.value_of("buffer-address").unwrap();
             let buffer_hash = get_buffer_hash(
                 matches.value_of("url").map(|s| s.to_string()),
-                Pubkey::try_from(buffer_address)?,
+                Address::try_from(buffer_address)?,
             )?;
             println!("{buffer_hash}");
             Ok(())
@@ -483,7 +483,7 @@ async fn main() -> anyhow::Result<()> {
                 &connection,
                 repo_url,
                 Some(commit_hash),
-                Pubkey::try_from(program_id)?,
+                Address::try_from(program_id)?,
                 base_image,
                 library_name,
                 bpf_flag,
@@ -509,7 +509,7 @@ async fn main() -> anyhow::Result<()> {
                 .parse::<u64>()
                 .unwrap_or(100000);
             process_close(
-                Pubkey::try_from(program_id)?,
+                Address::try_from(program_id)?,
                 &connection,
                 compute_unit_price,
                 config_path.clone(),
@@ -556,8 +556,8 @@ async fn main() -> anyhow::Result<()> {
 
             export_pda_tx(
                 &connection,
-                Pubkey::try_from(program_id)?,
-                Pubkey::try_from(uploader)?,
+                Address::try_from(program_id)?,
+                Address::try_from(uploader)?,
                 repo_url,
                 commit_hash,
                 mount_path,
@@ -574,13 +574,13 @@ async fn main() -> anyhow::Result<()> {
         }
         ("list-program-pdas", Some(sub_m)) => {
             let program_id = sub_m.value_of("program-id").unwrap();
-            list_program_pdas(Pubkey::try_from(program_id)?, &connection).await
+            list_program_pdas(Address::try_from(program_id)?, &connection).await
         }
         ("get-program-pda", Some(sub_m)) => {
             let program_id = sub_m.value_of("program-id").unwrap();
             let signer = sub_m.value_of("signer").map(|s| s.to_string());
             print_program_pda(
-                Pubkey::try_from(program_id)?,
+                Address::try_from(program_id)?,
                 signer,
                 &connection,
                 config_path.clone(),
@@ -590,7 +590,7 @@ async fn main() -> anyhow::Result<()> {
         ("remote", Some(sub_m)) => match sub_m.subcommand() {
             ("get-status", Some(sub_m)) => {
                 let program_id = sub_m.value_of("program-id").unwrap();
-                get_remote_status(Pubkey::try_from(program_id)?).await
+                get_remote_status(Address::try_from(program_id)?).await
             }
             ("get-job", Some(sub_m)) => {
                 let job_id = sub_m.value_of("job-id").unwrap();
@@ -602,8 +602,8 @@ async fn main() -> anyhow::Result<()> {
 
                 send_job_with_uploader_to_remote(
                     &connection,
-                    &Pubkey::try_from(program_id)?,
-                    &Pubkey::try_from(uploader)?,
+                    &Address::try_from(program_id)?,
+                    &Address::try_from(uploader)?,
                 )
                 .await
             }
@@ -728,7 +728,7 @@ pub fn get_file_hash(filepath: &str) -> Result<String, std::io::Error> {
     Ok(get_binary_hash(buffer))
 }
 
-pub fn get_buffer_hash(url: Option<String>, buffer_address: Pubkey) -> anyhow::Result<String> {
+pub fn get_buffer_hash(url: Option<String>, buffer_address: Address) -> anyhow::Result<String> {
     let client = get_client(url, None);
     let offset = UpgradeableLoaderState::size_of_buffer_metadata();
     let account_data =
@@ -736,7 +736,7 @@ pub fn get_buffer_hash(url: Option<String>, buffer_address: Pubkey) -> anyhow::R
     Ok(get_binary_hash(account_data))
 }
 
-pub fn get_program_hash(client: &RpcClient, program_id: Pubkey) -> anyhow::Result<String> {
+pub fn get_program_hash(client: &RpcClient, program_id: Address) -> anyhow::Result<String> {
     let account = retry_rpc_call(|| {
         client
             .get_account(&program_id)
@@ -919,7 +919,7 @@ pub fn build(
         .args(["run", "--rm", &image, "pwd"])
         .stderr(Stdio::inherit())
         .output()
-        .map_err(|e| anyhow::format_err!("Failed to get working directory : {}", e.to_string()))
+        .map_err(|e| anyhow::format_err!("Failed to get working directory : {}", e))
         .and_then(parse_output)?;
 
     println!("Workdir: {workdir}");
@@ -953,7 +953,7 @@ pub fn build(
         let output = cmd
             .args([&image, "bash"])
             .output()
-            .map_err(|e| anyhow!("Failed to start Docker container : {}", e.to_string()))?;
+            .map_err(|e| anyhow!("Failed to start Docker container : {}", e))?;
 
         parse_output(output)?
     };
@@ -1031,7 +1031,7 @@ pub fn build(
                 &format!("{program_name}.so"),
             ])
             .output()
-            .map_err(|e| anyhow!("Failed to find program: {}", e.to_string()))
+            .map_err(|e| anyhow!("Failed to find program: {}", e))
             .and_then(parse_output)?;
         let executable_hash = get_file_hash(&executable_path)?;
         println!("{executable_hash}");
@@ -1050,7 +1050,7 @@ pub fn verify_from_image(
     image: String,
     network: Option<String>,
     config_path: Option<String>,
-    program_id: Pubkey,
+    program_id: Address,
     current_dir: bool,
     temp_dir: &mut Option<String>,
     container_id_opt: &mut Option<String>,
@@ -1063,7 +1063,7 @@ pub fn verify_from_image(
         .args(["run", "--rm", &image, "pwd"])
         .stderr(Stdio::inherit())
         .output()
-        .map_err(|e| anyhow::format_err!("Failed to get working directory : {}", e.to_string()))
+        .map_err(|e| anyhow::format_err!("Failed to get working directory : {}", e))
         .and_then(parse_output)?;
 
     println!("Workdir: {workdir}");
@@ -1083,7 +1083,7 @@ pub fn verify_from_image(
         let output = cmd
             .args([&image])
             .output()
-            .map_err(|e| anyhow!("Failed to start Docker container : {}", e.to_string()))?;
+            .map_err(|e| anyhow!("Failed to start Docker container : {}", e))?;
         parse_output(output)?
     };
 
@@ -1117,7 +1117,7 @@ pub fn verify_from_image(
         .stdout(Stdio::inherit())
         .stderr(Stdio::inherit())
         .output()
-        .map_err(|e| anyhow::format_err!("Failed to copy executable file {}", e.to_string()))?;
+        .map_err(|e| anyhow::format_err!("Failed to copy executable file {}", e))?;
     ensure!(output.status.success(), "Failed to copy executable file");
 
     let executable_hash: String = get_file_hash(program_filepath.as_str())?;
@@ -1131,15 +1131,13 @@ pub fn verify_from_image(
         .args(["kill", container_id.as_str()])
         .stderr(Stdio::inherit())
         .output()
-        .map_err(|e| anyhow::format_err!("Docker kill failed: {}", e.to_string()))?;
+        .map_err(|e| anyhow::format_err!("Docker kill failed: {}", e))?;
 
     std::process::Command::new("rm")
         .args([program_filepath])
         .stderr(Stdio::inherit())
         .output()
-        .map_err(|e| {
-            anyhow::format_err!("Failed to remove temp program file: {}", e.to_string())
-        })?;
+        .map_err(|e| anyhow::format_err!("Failed to remove temp program file: {}", e))?;
 
     if program_hash != executable_hash {
         println!("Executable hash mismatch");
@@ -1177,7 +1175,7 @@ fn build_args(
                 .map_err(|e| {
                     anyhow::format_err!(
                         "Failed to find Cargo.toml files in root directory: {}",
-                        e.to_string()
+                        e
                     )
                 })
                 .and_then(|output| {
@@ -1321,7 +1319,7 @@ pub async fn verify_from_repo(
     connection: &RpcClient,
     repo_url: String,
     commit_hash: Option<String>,
-    program_id: Pubkey,
+    program_id: Address,
     base_image: Option<String>,
     library_name_opt: Option<String>,
     bpf_flag: bool,
@@ -1437,7 +1435,7 @@ pub fn build_and_verify_repo(
     arch: Option<String>,
     library_name: String,
     connection: &RpcClient,
-    program_id: Pubkey,
+    program_id: Address,
     cargo_args: Vec<String>,
     container_id_opt: &mut Option<String>,
 ) -> anyhow::Result<(String, String)> {
@@ -1461,7 +1459,7 @@ pub fn build_and_verify_repo(
             executable_filename.as_str(),
         ])
         .output()
-        .map_err(|e| anyhow::format_err!("Failed to find executable file {}", e.to_string()))
+        .map_err(|e| anyhow::format_err!("Failed to find executable file {}", e))
         .and_then(parse_output)?;
     println!("Executable file found at path: {executable_path:?}");
     let build_hash = get_file_hash(&executable_path)?;
@@ -1531,14 +1529,14 @@ pub fn get_pkg_name_from_cargo_toml(cargo_toml_file: &str) -> Option<String> {
     Some(pkg.name)
 }
 
-pub fn print_build_params(pubkey: &Pubkey, build_params: &OtterBuildParams) {
+pub fn print_build_params(address: &Address, build_params: &OtterBuildParams) {
     println!("----------------------------------------------------------------");
     println!("Address: {pubkey:?}");
     println!("----------------------------------------------------------------");
     println!("{build_params}");
 }
 
-pub async fn list_program_pdas(program_id: Pubkey, client: &RpcClient) -> anyhow::Result<()> {
+pub async fn list_program_pdas(program_id: Address, client: &RpcClient) -> anyhow::Result<()> {
     let pdas = get_all_pdas_available(client, &program_id).await?;
 
     if pdas.is_empty() {
@@ -1557,7 +1555,7 @@ pub async fn list_program_pdas(program_id: Pubkey, client: &RpcClient) -> anyhow
 }
 
 pub async fn print_program_pda(
-    program_id: Pubkey,
+    program_id: Address,
     signer: Option<String>,
     client: &RpcClient,
     config_path: Option<String>,
@@ -1585,8 +1583,8 @@ pub fn get_commit_hash(sub_m: &ArgMatches, repo_url: &str) -> anyhow::Result<Str
 #[allow(clippy::too_many_arguments)]
 async fn export_pda_tx(
     connection: &RpcClient,
-    program_id: Pubkey,
-    uploader: Pubkey,
+    program_id: Address,
+    uploader: Address,
     repo_url: String,
     commit_hash: String,
     mount_path: String,
@@ -1687,7 +1685,7 @@ fn find_relative_manifest_path_and_build_path(
         .map_err(|e| {
             anyhow::format_err!(
                 "Failed to find Cargo.toml files in root directory: {}",
-                e.to_string()
+                e
             )
         })
         .and_then(|output| {
