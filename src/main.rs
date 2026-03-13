@@ -1798,7 +1798,7 @@ where
     loop {
         match rpc_call() {
             Ok(result) => return Ok(result),
-            Err(err) if attempts < MAX_RETRIES => {
+            Err(_err) if attempts < MAX_RETRIES => {
                 attempts += 1;
                 println!(
                     "RPC call failed (attempt {}/{}) - retrying in {} ms...",
