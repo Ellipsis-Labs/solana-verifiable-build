@@ -466,7 +466,10 @@ async fn main() -> anyhow::Result<()> {
             let skip_build = sub_m.is_present("skip-build");
             let remote = sub_m.is_present("remote");
             let mount_path = sub_m.value_of("mount-path").map(|s| s.to_string()).unwrap();
-            let workspace_path = sub_m.value_of("workspace-path").map(|s| s.to_string()).unwrap_or_default();
+            let workspace_path = sub_m
+                .value_of("workspace-path")
+                .map(|s| s.to_string())
+                .unwrap_or_default();
             let repo_url = sub_m.value_of("repo-url").map(|s| s.to_string()).unwrap();
             let program_id = sub_m.value_of("program-id").unwrap();
             if remote {
@@ -537,7 +540,10 @@ async fn main() -> anyhow::Result<()> {
         ("export-pda-tx", Some(sub_m)) => {
             let uploader = sub_m.value_of("uploader").unwrap();
             let mount_path = sub_m.value_of("mount-path").map(|s| s.to_string()).unwrap();
-            let workspace_path = sub_m.value_of("workspace-path").map(|s| s.to_string()).unwrap_or_default();
+            let workspace_path = sub_m
+                .value_of("workspace-path")
+                .map(|s| s.to_string())
+                .unwrap_or_default();
             let repo_url = sub_m.value_of("repo-url").map(|s| s.to_string()).unwrap();
             let program_id = sub_m.value_of("program-id").unwrap();
             let base_image = sub_m.value_of("base-image").map(|s| s.to_string());
