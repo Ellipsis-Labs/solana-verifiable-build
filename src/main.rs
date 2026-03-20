@@ -50,6 +50,7 @@ const INITIAL_RETRY_DELAY_MS: u64 = 500;
 
 pub fn get_network(network_str: &str) -> &str {
     match network_str {
+        "testnet" | "test" | "t" => "https://api.testnet.solana.com",
         "devnet" | "dev" | "d" => "https://api.devnet.solana.com",
         "mainnet" | "main" | "m" | "mainnet-beta" => "https://api.mainnet-beta.solana.com",
         "localnet" | "localhost" | "l" | "local" => "http://localhost:8899",
