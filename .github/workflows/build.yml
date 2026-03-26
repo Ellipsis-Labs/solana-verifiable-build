@@ -42,7 +42,10 @@ jobs:
 
       - name: Install dependencies
         if: runner.os == 'Linux'
-        run: sudo apt install -y pkg-config libudev-dev
+        run: |
+          sudo apt-get update -o Acquire::Retries=3
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+            pkg-config libudev-dev
 
       - name: Use Rust toolchain
         uses: actions-rs/toolchain@v1
