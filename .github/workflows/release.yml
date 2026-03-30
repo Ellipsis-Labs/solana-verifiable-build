@@ -13,7 +13,7 @@ on:
         default: true
         type: boolean
       skip_publish_check:
-        description: "Skip crates.io published-version precheck and publish steps (recovery mode only)"
+        description: "Recovery mode for already-published versions: skip crates.io publish steps"
         required: true
         default: false
         type: boolean
@@ -32,6 +32,7 @@ jobs:
     outputs:
       version: ${{ steps.validate.outputs.version }}
       tag: ${{ steps.validate.outputs.tag }}
+      existing_tag_sha: ${{ steps.validate.outputs.existing_tag_sha }}
       dry_run: ${{ steps.validate.outputs.dry_run }}
       skip_publish_check: ${{ steps.validate.outputs.skip_publish_check }}
       default_branch: ${{ steps.validate.outputs.default_branch }}
@@ -82,19 +83,14 @@ jobs:
 
           TAG="v${VERSION}"
           RELEASE_BRANCH="release/${TAG}"
-
-          if git rev-parse "${TAG}" >/dev/null 2>&1; then
-            echo "Error: tag ${TAG} already exists locally"
-            exit 1
-          fi
-
-          if git ls-remote --exit-code --tags origin "refs/tags/${TAG}" >/dev/null 2>&1; then
-            echo "Error: tag ${TAG} already exists on origin"
-            exit 1
+          EXISTING_TAG_SHA="$(git ls-remote --tags origin "refs/tags/${TAG}" | awk '{print $1}')"
+          if [[ -n "${EXISTING_TAG_SHA}" ]]; then
+            echo "Notice: tag ${TAG} already exists on origin at ${EXISTING_TAG_SHA}; workflow will reuse it for recovery-safe reruns"
           fi
 
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
           echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+          echo "existing_tag_sha=${EXISTING_TAG_SHA}" >> "$GITHUB_OUTPUT"
           echo "dry_run=${DRY_RUN}" >> "$GITHUB_OUTPUT"
           echo "skip_publish_check=${SKIP_PUBLISH_CHECK}" >> "$GITHUB_OUTPUT"
           echo "default_branch=${DEFAULT_BRANCH}" >> "$GITHUB_OUTPUT"
@@ -189,6 +185,7 @@ jobs:
         env:
           DRY_RUN: ${{ steps.validate.outputs.dry_run }}
           SKIP_PUBLISH_CHECK: ${{ steps.validate.outputs.skip_publish_check }}
+          EXISTING_TAG_SHA: ${{ steps.validate.outputs.existing_tag_sha }}
           RELEASE_BRANCH: ${{ steps.validate.outputs.release_branch }}
           VERSION: ${{ steps.validate.outputs.version }}
         run: |
@@ -212,6 +209,12 @@ jobs:
             exit 0
           fi
 
+          if [[ -n "$EXISTING_TAG_SHA" ]]; then
+            echo "Existing tag detected; reusing tagged release commit ${EXISTING_TAG_SHA}"
+            echo "release_commit=${EXISTING_TAG_SHA}" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
           git checkout -B "$RELEASE_BRANCH"
           git add Cargo.toml Cargo.lock
           git commit -m "chore: release v${VERSION}"
@@ -221,7 +224,7 @@ jobs:
 
       - name: Open or reuse release PR
         id: open_pr
-        if: ${{ steps.validate.outputs.dry_run != 'true' }}
+        if: ${{ steps.validate.outputs.dry_run != 'true' && steps.validate.outputs.skip_publish_check != 'true' && steps.validate.outputs.existing_tag_sha == '' }}
         env:
           GH_TOKEN: ${{ github.token }}
           DEFAULT_BRANCH: ${{ steps.validate.outputs.default_branch }}
@@ -337,14 +340,13 @@ jobs:
           if-no-files-found: error
 
   publish_crate:
-    name: Publish Crate
+    name: Validate Crate Publish
     needs:
       - prepare
       - build_artifacts
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      id-token: write
     steps:
       - name: Checkout release commit
         if: ${{ needs.prepare.outputs.dry_run != 'true' }}
@@ -396,23 +398,12 @@ jobs:
         if: ${{ needs.prepare.outputs.skip_publish_check != 'true' }}
         run: cargo publish --dry-run --locked
 
-      - name: Authenticate crates.io trusted publisher
-        if: ${{ needs.prepare.outputs.dry_run != 'true' && needs.prepare.outputs.skip_publish_check != 'true' }}
-        id: crates_io_auth
-        uses: rust-lang/crates-io-auth-action@bbd81622f20ce9e2dd9622e3218b975523e45bbe # v1.0.4
-
-      - name: Publish to crates.io
-        if: ${{ needs.prepare.outputs.dry_run != 'true' && needs.prepare.outputs.skip_publish_check != 'true' }}
-        run: cargo publish --locked
-        env:
-          CARGO_REGISTRY_TOKEN: ${{ steps.crates_io_auth.outputs.token }}
-
-      - name: Skip crates.io publish steps (recovery mode)
+      - name: Skip crates.io publish dry-run (recovery mode)
         if: ${{ needs.prepare.outputs.skip_publish_check == 'true' }}
-        run: echo "skip_publish_check=true, skipping crates.io publish checks and publish steps"
+        run: echo "skip_publish_check=true, skipping crates.io dry-run publish check"
 
   finalize_release:
-    name: Create Tag and GitHub Release
+    name: Finalize Release and Publish Crate
     if: ${{ needs.prepare.outputs.dry_run != 'true' }}
     needs:
       - prepare
@@ -421,9 +412,9 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      id-token: write
     steps:
       - name: Checkout release commit
-        if: ${{ needs.prepare.outputs.dry_run != 'true' }}
         uses: actions/checkout@v6
         with:
           fetch-depth: 0
@@ -444,10 +435,16 @@ jobs:
             exit 1
           fi
 
-      - name: Install jq
+      - name: Install build dependencies
         run: |
           sudo apt-get update -o Acquire::Retries=3
-          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends jq
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+            pkg-config libudev-dev jq
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.94.0
 
       - name: Download release artifacts
         uses: actions/download-artifact@v4
@@ -457,23 +454,30 @@ jobs:
           merge-multiple: true
 
       - name: Push tag
-        if: ${{ needs.prepare.outputs.dry_run != 'true' }}
         env:
           TAG: ${{ needs.prepare.outputs.tag }}
           RELEASE_COMMIT: ${{ needs.prepare.outputs.release_commit }}
         run: |
           set -euo pipefail
 
-          if git ls-remote --exit-code --tags origin "refs/tags/${TAG}" >/dev/null 2>&1; then
-            echo "Error: tag ${TAG} already exists on origin"
-            exit 1
+          REMOTE_TAG_SHA="$(git ls-remote --tags origin "refs/tags/${TAG}" | awk '{print $1}')"
+          if [[ -n "${REMOTE_TAG_SHA}" ]]; then
+            if [[ "${REMOTE_TAG_SHA}" != "${RELEASE_COMMIT}" ]]; then
+              echo "Error: tag ${TAG} already exists on origin at ${REMOTE_TAG_SHA} (expected ${RELEASE_COMMIT})"
+              exit 1
+            fi
+            echo "Tag ${TAG} already exists on the expected release commit; skipping tag push"
+            exit 0
+          fi
+
+          if git rev-parse "${TAG}" >/dev/null 2>&1; then
+            git tag -d "${TAG}"
           fi
 
           git tag "$TAG" "$RELEASE_COMMIT"
           git push origin "$TAG"
 
       - name: Create GitHub release and upload assets
-        if: ${{ needs.prepare.outputs.dry_run != 'true' }}
         uses: softprops/action-gh-release@v2.6.1
         with:
           tag_name: ${{ needs.prepare.outputs.tag }}
@@ -486,21 +490,17 @@ jobs:
             dist/solana-verify-${{ needs.prepare.outputs.version }}-macos
             dist/solana-verify-${{ needs.prepare.outputs.version }}-macos.sha256
 
-      - name: Publish workflow summary
+      - name: Authenticate crates.io trusted publisher
+        if: ${{ needs.prepare.outputs.skip_publish_check != 'true' }}
+        id: crates_io_auth
+        uses: rust-lang/crates-io-auth-action@bbd81622f20ce9e2dd9622e3218b975523e45bbe # v1.0.4
+
+      - name: Skip crates.io publish (recovery mode)
+        if: ${{ needs.prepare.outputs.skip_publish_check == 'true' }}
+        run: echo "skip_publish_check=true, skipping crates.io publish because version is already published"
+
+      - name: Publish to crates.io
+        if: ${{ needs.prepare.outputs.skip_publish_check != 'true' }}
+        run: cargo publish --locked
         env:
-          TAG: ${{ needs.prepare.outputs.tag }}
-          VERSION: ${{ needs.prepare.outputs.version }}
-          PR_URL: ${{ needs.prepare.outputs.pr_url }}
-          SKIP_PUBLISH_CHECK: ${{ needs.prepare.outputs.skip_publish_check }}
-        run: |
-          {
-            echo "## Release Completed"
-            echo
-            echo "- Dry run: \`false\`"
-            echo "- Recovery mode (skip_publish_check): \`${SKIP_PUBLISH_CHECK}\`"
-            echo "- Version: \`${VERSION}\`"
-            echo "- Tag: \`${TAG}\`"
-            echo "- Version bump PR: ${PR_URL}"
-            echo "- Crate: https://crates.io/crates/solana-verify"
-            echo "- GitHub Release: https://github.com/${GITHUB_REPOSITORY}/releases/tag/${TAG}"
-          } >> "$GITHUB_STEP_SUMMARY"
+          CARGO_REGISTRY_TOKEN: ${{ steps.crates_io_auth.outputs.token }}
