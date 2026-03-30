@@ -170,7 +170,9 @@ jobs:
         if: ${{ steps.validate.outputs.dry_run == 'true' }}
         run: |
           set -euo pipefail
-          tar --exclude=.git --exclude=target --exclude=source-snapshot.tar.gz -czf source-snapshot.tar.gz .
+          SNAPSHOT_PATH="$(mktemp /tmp/source-snapshot.XXXXXX.tar.gz)"
+          tar --exclude=.git --exclude=target -czf "${SNAPSHOT_PATH}" .
+          mv "${SNAPSHOT_PATH}" source-snapshot.tar.gz
 
       - name: Upload dry-run release source snapshot
         if: ${{ steps.validate.outputs.dry_run == 'true' }}
