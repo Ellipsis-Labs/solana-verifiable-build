@@ -12,6 +12,11 @@ on:
         required: true
         default: true
         type: boolean
+      skip_publish_check:
+        description: "Skip crates.io published-version precheck and publish steps (recovery mode only)"
+        required: true
+        default: false
+        type: boolean
 
 concurrency:
   group: release-${{ github.repository }}-${{ github.event.inputs.version }}
@@ -28,6 +33,7 @@ jobs:
       version: ${{ steps.validate.outputs.version }}
       tag: ${{ steps.validate.outputs.tag }}
       dry_run: ${{ steps.validate.outputs.dry_run }}
+      skip_publish_check: ${{ steps.validate.outputs.skip_publish_check }}
       default_branch: ${{ steps.validate.outputs.default_branch }}
       release_branch: ${{ steps.validate.outputs.release_branch }}
       release_commit: ${{ steps.commit.outputs.release_commit }}
@@ -45,6 +51,7 @@ jobs:
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
           VERSION: ${{ github.event.inputs.version }}
           DRY_RUN: ${{ github.event.inputs.dry_run }}
+          SKIP_PUBLISH_CHECK: ${{ github.event.inputs.skip_publish_check }}
         run: |
           set -euo pipefail
 
@@ -60,6 +67,16 @@ jobs:
 
           if [[ "${DRY_RUN}" != "true" && "${DRY_RUN}" != "false" ]]; then
             echo "Error: dry_run must be true or false"
+            exit 1
+          fi
+
+          if [[ "${SKIP_PUBLISH_CHECK}" != "true" && "${SKIP_PUBLISH_CHECK}" != "false" ]]; then
+            echo "Error: skip_publish_check must be true or false"
+            exit 1
+          fi
+
+          if [[ "${DRY_RUN}" == "true" && "${SKIP_PUBLISH_CHECK}" == "true" ]]; then
+            echo "Error: skip_publish_check=true requires dry_run=false"
             exit 1
           fi
 
@@ -79,6 +96,7 @@ jobs:
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
           echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
           echo "dry_run=${DRY_RUN}" >> "$GITHUB_OUTPUT"
+          echo "skip_publish_check=${SKIP_PUBLISH_CHECK}" >> "$GITHUB_OUTPUT"
           echo "default_branch=${DEFAULT_BRANCH}" >> "$GITHUB_OUTPUT"
           echo "release_branch=${RELEASE_BRANCH}" >> "$GITHUB_OUTPUT"
 
@@ -105,6 +123,7 @@ jobs:
         run: cargo install cargo-edit --locked
 
       - name: Verify version is not already published
+        if: ${{ steps.validate.outputs.skip_publish_check != 'true' }}
         env:
           VERSION: ${{ steps.validate.outputs.version }}
         run: |
@@ -121,7 +140,23 @@ jobs:
             echo "Notice: could not query crates.io for ${CRATE_NAME}; continuing"
           fi
 
+      - name: Verify version is already published (recovery mode)
+        if: ${{ steps.validate.outputs.skip_publish_check == 'true' }}
+        env:
+          VERSION: ${{ steps.validate.outputs.version }}
+        run: |
+          set -euo pipefail
+          CRATE_NAME=$(cargo metadata --format-version 1 --no-deps | jq -r '.packages[0].name')
+          API_URL="https://crates.io/api/v1/crates/${CRATE_NAME}"
+
+          curl -fsSL "${API_URL}" > /tmp/crate.json
+          if ! jq -e --arg version "$VERSION" '.versions[]? | select(.num == $version)' /tmp/crate.json >/dev/null; then
+            echo "Error: skip_publish_check=true requires ${CRATE_NAME} version ${VERSION} to already be published"
+            exit 1
+          fi
+
       - name: Set package version and validate lockfile/build
+        if: ${{ steps.validate.outputs.skip_publish_check != 'true' }}
         env:
           VERSION: ${{ steps.validate.outputs.version }}
         run: |
@@ -153,6 +188,7 @@ jobs:
         id: commit
         env:
           DRY_RUN: ${{ steps.validate.outputs.dry_run }}
+          SKIP_PUBLISH_CHECK: ${{ steps.validate.outputs.skip_publish_check }}
           RELEASE_BRANCH: ${{ steps.validate.outputs.release_branch }}
           VERSION: ${{ steps.validate.outputs.version }}
         run: |
@@ -162,7 +198,17 @@ jobs:
 
           if [[ "$DRY_RUN" == "true" ]]; then
             echo "Dry run enabled; skipping release branch push"
-            echo "release_commit=${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
+            echo "release_commit=" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if [[ "$SKIP_PUBLISH_CHECK" == "true" ]]; then
+            echo "Recovery mode enabled; reusing existing ${RELEASE_BRANCH} commit"
+            if ! git fetch origin "${RELEASE_BRANCH}" --depth=1; then
+              echo "Error: release branch ${RELEASE_BRANCH} does not exist on origin"
+              exit 1
+            fi
+            echo "release_commit=$(git rev-parse FETCH_HEAD)" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
@@ -347,21 +393,27 @@ jobs:
           toolchain: 1.94.0
 
       - name: Publish dry-run to crates.io
+        if: ${{ needs.prepare.outputs.skip_publish_check != 'true' }}
         run: cargo publish --dry-run --locked
 
       - name: Authenticate crates.io trusted publisher
-        if: ${{ needs.prepare.outputs.dry_run != 'true' }}
+        if: ${{ needs.prepare.outputs.dry_run != 'true' && needs.prepare.outputs.skip_publish_check != 'true' }}
         id: crates_io_auth
         uses: rust-lang/crates-io-auth-action@bbd81622f20ce9e2dd9622e3218b975523e45bbe # v1.0.4
 
       - name: Publish to crates.io
-        if: ${{ needs.prepare.outputs.dry_run != 'true' }}
+        if: ${{ needs.prepare.outputs.dry_run != 'true' && needs.prepare.outputs.skip_publish_check != 'true' }}
         run: cargo publish --locked
         env:
           CARGO_REGISTRY_TOKEN: ${{ steps.crates_io_auth.outputs.token }}
 
+      - name: Skip crates.io publish steps (recovery mode)
+        if: ${{ needs.prepare.outputs.skip_publish_check == 'true' }}
+        run: echo "skip_publish_check=true, skipping crates.io publish checks and publish steps"
+
   finalize_release:
     name: Create Tag and GitHub Release
+    if: ${{ needs.prepare.outputs.dry_run != 'true' }}
     needs:
       - prepare
       - build_artifacts
@@ -376,20 +428,6 @@ jobs:
         with:
           fetch-depth: 0
           ref: ${{ needs.prepare.outputs.release_commit }}
-
-      - name: Download dry-run release source snapshot
-        if: ${{ needs.prepare.outputs.dry_run == 'true' }}
-        uses: actions/download-artifact@v4
-        with:
-          name: source-snapshot
-          path: .
-
-      - name: Extract dry-run release source snapshot
-        if: ${{ needs.prepare.outputs.dry_run == 'true' }}
-        run: |
-          set -euo pipefail
-          tar -xzf source-snapshot.tar.gz
-          rm source-snapshot.tar.gz
 
       - name: Verify release version consistency
         env:
@@ -450,26 +488,19 @@ jobs:
 
       - name: Publish workflow summary
         env:
-          DRY_RUN: ${{ needs.prepare.outputs.dry_run }}
           TAG: ${{ needs.prepare.outputs.tag }}
           VERSION: ${{ needs.prepare.outputs.version }}
           PR_URL: ${{ needs.prepare.outputs.pr_url }}
+          SKIP_PUBLISH_CHECK: ${{ needs.prepare.outputs.skip_publish_check }}
         run: |
           {
             echo "## Release Completed"
             echo
-            echo "- Dry run: \`${DRY_RUN}\`"
+            echo "- Dry run: \`false\`"
+            echo "- Recovery mode (skip_publish_check): \`${SKIP_PUBLISH_CHECK}\`"
             echo "- Version: \`${VERSION}\`"
             echo "- Tag: \`${TAG}\`"
-            if [[ "${DRY_RUN}" == "true" ]]; then
-              echo "- Version bump PR: dry-run (not created)"
-            else
-              echo "- Version bump PR: ${PR_URL}"
-            fi
+            echo "- Version bump PR: ${PR_URL}"
             echo "- Crate: https://crates.io/crates/solana-verify"
-            if [[ "${DRY_RUN}" != "true" ]]; then
-              echo "- GitHub Release: https://github.com/${GITHUB_REPOSITORY}/releases/tag/${TAG}"
-            else
-              echo "- GitHub Release: dry-run (not created)"
-            fi
+            echo "- GitHub Release: https://github.com/${GITHUB_REPOSITORY}/releases/tag/${TAG}"
           } >> "$GITHUB_STEP_SUMMARY"

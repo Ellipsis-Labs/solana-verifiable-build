@@ -36,29 +36,36 @@ The workflow handles release branch creation, version bump, crate publish, tag c
 5. Choose `dry_run`:
 - `true` for safe validation (recommended first run)
 - `false` for real publish/tag/release
-6. Start run.
+6. Choose `skip_publish_check`:
+- `false` for normal releases (default)
+- `true` only for recovery when the crate version is already published and you need to finish tag/release
+7. Start run.
 
 ## What the Workflow Does
 
 1. Validates:
 - trigger branch is default branch
 - version format is semver (`X.Y.Z`)
+- `skip_publish_check` is a valid boolean and only used with `dry_run=false`
 - target tag does not already exist
-- crate version is not already published
+- when `skip_publish_check=false`: crate version is not already published
+- when `skip_publish_check=true`: crate version is already published
 
 2. Prepares release commit:
-- bumps `Cargo.toml` + `Cargo.lock`
-- runs `cargo check --locked`
-- when `dry_run=false`: pushes `release/vX.Y.Z` branch and opens/reuses release PR
+- when `skip_publish_check=false`: bumps `Cargo.toml` + `Cargo.lock` and runs `cargo check --locked`
+- when `dry_run=false` and `skip_publish_check=false`: pushes `release/vX.Y.Z` branch and opens/reuses release PR
+- when `skip_publish_check=true`: reuses existing `release/vX.Y.Z` branch commit without rewriting it
 
 3. Builds artifacts (Linux + macOS) with `fail-fast: false`.
 
 4. Publishes crate:
-- `cargo publish --dry-run --locked`
-- when `dry_run=false`: `cargo publish --locked`
+- when `skip_publish_check=false`: `cargo publish --dry-run --locked`
+- when `dry_run=false` and `skip_publish_check=false`: `cargo publish --locked`
+- when `skip_publish_check=true`: skips crates.io publish checks and publish steps
 
 5. Finalizes release:
 - when `dry_run=false`: tags release commit (`vX.Y.Z`), pushes tag, and creates GitHub release with binaries + checksums
+- when `dry_run=true`: `finalize_release` job is skipped
 
 ## Post-Release Step
 
@@ -76,9 +83,12 @@ The workflow handles release branch creation, version bump, crate publish, tag c
 
 3. **Fails during `Publish Crate` in real mode**:
 - if publish failed, fix issue and rerun same version
-- if publish succeeded but later steps failed, do not rerun `Release` with the same version (the precheck will block already-published versions)
+- if publish succeeded but later steps failed, rerun `Release` with `skip_publish_check=true` (do not rerun default mode)
 
 4. **Crate published but tag/release failed**:
-- manually create the missing tag and GitHub release from the `release/vX.Y.Z` branch commit
+- rerun `Release` with the same version and `dry_run=false`, `skip_publish_check=true`
+- this reuses the existing published crate version and continues with tag/release creation
+- recovery mode requires `release/vX.Y.Z` to already exist on origin
+- if the tag already exists but GitHub release is missing, create the GitHub release manually for that existing tag
 - merge the existing release PR after tag/release is in place
 - do not publish a new crate version unless you intentionally want a new release
