@@ -1,44 +1,35 @@
-name: Create Release
+name: Build Release Artifacts
 
 on:
-  push:
-    tags:
-      - "v*" # Trigger when a commit is tagged with a new version. TODO: Use a filter pattern for major releases only.
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "Git ref (branch, tag, or SHA) to build"
+        required: true
+        default: master
+        type: string
+
+concurrency:
+  group: build-release-artifacts-${{ github.repository }}-${{ github.event.inputs.ref }}
+  cancel-in-progress: false
 
 jobs:
-  create_release:
-    name: Create Release
-    runs-on: ubuntu-latest
-    steps:
-      - name: Create Release
-        id: create_release
-        uses: softprops/action-gh-release@v1
-        with:
-          name: ${{ github.ref_name }}
-          draft: false
-          prerelease: false
-          generate_release_notes: true
-
   build_release:
-    name: Build Release
-    needs: create_release
+    name: Build Artifacts (${{ matrix.name }})
     runs-on: ${{ matrix.os }}
     strategy:
+      fail-fast: false
       matrix:
-        name: [linux, macos]
-
         include:
           - name: linux
             os: ubuntu-latest
-            artifact_path: target/release/solana-verify
-            asset_name: solana-verify-linux
           - name: macos
             os: macos-latest
-            artifact_path: target/release/solana-verify
-            asset_name: solana-verify-macos
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.inputs.ref }}
 
       - name: Install dependencies
         if: runner.os == 'Linux'
@@ -47,25 +38,28 @@ jobs:
           sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
             pkg-config libudev-dev
 
-      - name: Use Rust toolchain
-        uses: actions-rs/toolchain@v1
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
         with:
-          profile: minimal
-          toolchain: stable
+          toolchain: 1.94.0
 
-      - name: Build
+      - name: Build release binary
         run: cargo build --release --locked
 
-      - name: Rename executable based on OS
+      - name: Package artifacts
         env:
-          ASSET_NAME: ${{matrix.asset_name}}
-          EXEC_PATH: ${{matrix.artifact_path}}
+          TARGET_OS: ${{ matrix.name }}
         run: |
-          echo "asset name: ${ASSET_NAME} executable path: ${EXEC_PATH}"
-          mv ${EXEC_PATH} ${ASSET_NAME}
+          set -euo pipefail
+          BIN="solana-verify-${TARGET_OS}"
+          cp target/release/solana-verify "$BIN"
+          shasum -a 256 "$BIN" > "${BIN}.sha256"
 
-      - name: Upload binaries to release
-        uses: softprops/action-gh-release@v1
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
         with:
-          files: ${{matrix.asset_name}}
-          fail_on_unmatched_files: true
+          name: build-${{ matrix.name }}
+          path: |
+            solana-verify-${{ matrix.name }}
+            solana-verify-${{ matrix.name }}.sha256
+          if-no-files-found: error

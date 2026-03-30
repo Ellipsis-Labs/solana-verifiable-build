@@ -1,0 +1,467 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to release (X.Y.Z)"
+        required: true
+        type: string
+      dry_run:
+        description: "Run validations/builds/publish dry-run without pushing tag/release/publish"
+        required: true
+        default: true
+        type: boolean
+
+concurrency:
+  group: release-${{ github.repository }}-${{ github.event.inputs.version }}
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    name: Prepare Release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    outputs:
+      version: ${{ steps.validate.outputs.version }}
+      tag: ${{ steps.validate.outputs.tag }}
+      dry_run: ${{ steps.validate.outputs.dry_run }}
+      default_branch: ${{ steps.validate.outputs.default_branch }}
+      release_branch: ${{ steps.validate.outputs.release_branch }}
+      release_commit: ${{ steps.commit.outputs.release_commit }}
+      pr_url: ${{ steps.open_pr.outputs.pr_url }}
+    steps:
+      - name: Checkout default branch
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.repository.default_branch }}
+
+      - name: Validate inputs and release preconditions
+        id: validate
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          VERSION: ${{ github.event.inputs.version }}
+          DRY_RUN: ${{ github.event.inputs.dry_run }}
+        run: |
+          set -euo pipefail
+
+          if [[ "${GITHUB_REF_NAME}" != "${DEFAULT_BRANCH}" ]]; then
+            echo "Error: run this workflow from ${DEFAULT_BRANCH} (got ${GITHUB_REF_NAME})"
+            exit 1
+          fi
+
+          if ! [[ "${VERSION}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Error: version must be X.Y.Z (for example 0.4.14)"
+            exit 1
+          fi
+
+          if [[ "${DRY_RUN}" != "true" && "${DRY_RUN}" != "false" ]]; then
+            echo "Error: dry_run must be true or false"
+            exit 1
+          fi
+
+          TAG="v${VERSION}"
+          RELEASE_BRANCH="release/${TAG}"
+
+          if git rev-parse "${TAG}" >/dev/null 2>&1; then
+            echo "Error: tag ${TAG} already exists locally"
+            exit 1
+          fi
+
+          if git ls-remote --exit-code --tags origin "refs/tags/${TAG}" >/dev/null 2>&1; then
+            echo "Error: tag ${TAG} already exists on origin"
+            exit 1
+          fi
+
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+          echo "dry_run=${DRY_RUN}" >> "$GITHUB_OUTPUT"
+          echo "default_branch=${DEFAULT_BRANCH}" >> "$GITHUB_OUTPUT"
+          echo "release_branch=${RELEASE_BRANCH}" >> "$GITHUB_OUTPUT"
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update -o Acquire::Retries=3
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+            pkg-config libudev-dev jq
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.94.0
+
+      - name: Install cargo-edit
+        run: cargo install cargo-edit --locked
+
+      - name: Verify version is not already published
+        env:
+          VERSION: ${{ steps.validate.outputs.version }}
+        run: |
+          set -euo pipefail
+          CRATE_NAME=$(cargo metadata --format-version 1 --no-deps | jq -r '.packages[0].name')
+          API_URL="https://crates.io/api/v1/crates/${CRATE_NAME}"
+
+          if curl -fsSL "${API_URL}" > /tmp/crate.json; then
+            if jq -e --arg version "$VERSION" '.versions[]? | select(.num == $version)' /tmp/crate.json >/dev/null; then
+              echo "Error: ${CRATE_NAME} version ${VERSION} is already published"
+              exit 1
+            fi
+          else
+            echo "Notice: could not query crates.io for ${CRATE_NAME}; continuing"
+          fi
+
+      - name: Set package version and validate lockfile/build
+        env:
+          VERSION: ${{ steps.validate.outputs.version }}
+        run: |
+          set -euo pipefail
+          cargo set-version "$VERSION" --manifest-path Cargo.toml
+
+          if git diff --quiet -- Cargo.toml Cargo.lock; then
+            echo "Error: requested version ${VERSION} already matches Cargo metadata"
+            exit 1
+          fi
+
+          cargo check --locked
+
+      - name: Bundle dry-run release source snapshot
+        if: ${{ steps.validate.outputs.dry_run == 'true' }}
+        run: |
+          set -euo pipefail
+          tar --exclude=.git --exclude=target -czf source-snapshot.tar.gz .
+
+      - name: Upload dry-run release source snapshot
+        if: ${{ steps.validate.outputs.dry_run == 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: source-snapshot
+          path: source-snapshot.tar.gz
+          if-no-files-found: error
+
+      - name: Commit release bump to release branch
+        id: commit
+        env:
+          DRY_RUN: ${{ steps.validate.outputs.dry_run }}
+          RELEASE_BRANCH: ${{ steps.validate.outputs.release_branch }}
+          VERSION: ${{ steps.validate.outputs.version }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          if [[ "$DRY_RUN" == "true" ]]; then
+            echo "Dry run enabled; skipping release branch push"
+            echo "release_commit=${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          git checkout -B "$RELEASE_BRANCH"
+          git add Cargo.toml Cargo.lock
+          git commit -m "chore: release v${VERSION}"
+          git push --force-with-lease origin "$RELEASE_BRANCH"
+
+          echo "release_commit=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Open or reuse release PR
+        id: open_pr
+        if: ${{ steps.validate.outputs.dry_run != 'true' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DEFAULT_BRANCH: ${{ steps.validate.outputs.default_branch }}
+          RELEASE_BRANCH: ${{ steps.validate.outputs.release_branch }}
+          VERSION: ${{ steps.validate.outputs.version }}
+        run: |
+          set -euo pipefail
+
+          PR_URL=$(gh pr list \
+            --head "$RELEASE_BRANCH" \
+            --base "$DEFAULT_BRANCH" \
+            --json url \
+            --jq '.[0].url')
+
+          if [[ -z "$PR_URL" || "$PR_URL" == "null" ]]; then
+            PR_URL=$(gh pr create \
+              --base "$DEFAULT_BRANCH" \
+              --head "$RELEASE_BRANCH" \
+              --title "chore: release v${VERSION}" \
+              --body $'Automated release branch for this version.\n\nMerge this PR after the release workflow completes successfully.')
+          fi
+
+          echo "pr_url=${PR_URL}" >> "$GITHUB_OUTPUT"
+
+  build_artifacts:
+    name: Build Release Artifacts (${{ matrix.name }})
+    needs: prepare
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: linux
+            os: ubuntu-latest
+          - name: macos
+            os: macos-latest
+    steps:
+      - name: Checkout release commit
+        if: ${{ needs.prepare.outputs.dry_run != 'true' }}
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.prepare.outputs.release_commit }}
+
+      - name: Download dry-run release source snapshot
+        if: ${{ needs.prepare.outputs.dry_run == 'true' }}
+        uses: actions/download-artifact@v4
+        with:
+          name: source-snapshot
+          path: .
+
+      - name: Extract dry-run release source snapshot
+        if: ${{ needs.prepare.outputs.dry_run == 'true' }}
+        run: |
+          set -euo pipefail
+          tar -xzf source-snapshot.tar.gz
+          rm source-snapshot.tar.gz
+
+      - name: Verify release version consistency
+        env:
+          EXPECTED_VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          set -euo pipefail
+          ACTUAL_VERSION="$(cargo metadata --format-version 1 --no-deps | jq -r '.packages[0].version')"
+          if [[ -z "${ACTUAL_VERSION}" || "${ACTUAL_VERSION}" == "null" ]]; then
+            echo "Error: could not read package version from Cargo.toml"
+            exit 1
+          fi
+          if [[ "${ACTUAL_VERSION}" != "${EXPECTED_VERSION}" ]]; then
+            echo "Error: version mismatch (expected ${EXPECTED_VERSION}, found ${ACTUAL_VERSION})"
+            exit 1
+          fi
+
+      - name: Install build dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update -o Acquire::Retries=3
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+            pkg-config libudev-dev jq
+
+      - name: Ensure jq is installed (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          set -euo pipefail
+          if ! command -v jq >/dev/null 2>&1; then
+            brew install jq
+          fi
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.94.0
+
+      - name: Build release binary
+        run: cargo build --release --locked
+
+      - name: Package artifacts
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+          TARGET_OS: ${{ matrix.name }}
+        run: |
+          set -euo pipefail
+          BIN="solana-verify-${VERSION}-${TARGET_OS}"
+          cp target/release/solana-verify "$BIN"
+          shasum -a 256 "$BIN" > "${BIN}.sha256"
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ matrix.name }}
+          path: |
+            solana-verify-${{ needs.prepare.outputs.version }}-${{ matrix.name }}
+            solana-verify-${{ needs.prepare.outputs.version }}-${{ matrix.name }}.sha256
+          if-no-files-found: error
+
+  publish_crate:
+    name: Publish Crate
+    needs:
+      - prepare
+      - build_artifacts
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Checkout release commit
+        if: ${{ needs.prepare.outputs.dry_run != 'true' }}
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.prepare.outputs.release_commit }}
+
+      - name: Download dry-run release source snapshot
+        if: ${{ needs.prepare.outputs.dry_run == 'true' }}
+        uses: actions/download-artifact@v4
+        with:
+          name: source-snapshot
+          path: .
+
+      - name: Extract dry-run release source snapshot
+        if: ${{ needs.prepare.outputs.dry_run == 'true' }}
+        run: |
+          set -euo pipefail
+          tar -xzf source-snapshot.tar.gz
+          rm source-snapshot.tar.gz
+
+      - name: Verify release version consistency
+        env:
+          EXPECTED_VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          set -euo pipefail
+          ACTUAL_VERSION="$(cargo metadata --format-version 1 --no-deps | jq -r '.packages[0].version')"
+          if [[ -z "${ACTUAL_VERSION}" || "${ACTUAL_VERSION}" == "null" ]]; then
+            echo "Error: could not read package version from Cargo.toml"
+            exit 1
+          fi
+          if [[ "${ACTUAL_VERSION}" != "${EXPECTED_VERSION}" ]]; then
+            echo "Error: version mismatch (expected ${EXPECTED_VERSION}, found ${ACTUAL_VERSION})"
+            exit 1
+          fi
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update -o Acquire::Retries=3
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+            pkg-config libudev-dev jq
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.94.0
+
+      - name: Publish dry-run to crates.io
+        run: cargo publish --dry-run --locked
+
+      - name: Authenticate crates.io trusted publisher
+        if: ${{ needs.prepare.outputs.dry_run != 'true' }}
+        id: crates_io_auth
+        uses: rust-lang/crates-io-auth-action@bbd81622f20ce9e2dd9622e3218b975523e45bbe # v1.0.4
+
+      - name: Publish to crates.io
+        if: ${{ needs.prepare.outputs.dry_run != 'true' }}
+        run: cargo publish --locked
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ steps.crates_io_auth.outputs.token }}
+
+  finalize_release:
+    name: Create Tag and GitHub Release
+    needs:
+      - prepare
+      - build_artifacts
+      - publish_crate
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout release commit
+        if: ${{ needs.prepare.outputs.dry_run != 'true' }}
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          ref: ${{ needs.prepare.outputs.release_commit }}
+
+      - name: Download dry-run release source snapshot
+        if: ${{ needs.prepare.outputs.dry_run == 'true' }}
+        uses: actions/download-artifact@v4
+        with:
+          name: source-snapshot
+          path: .
+
+      - name: Extract dry-run release source snapshot
+        if: ${{ needs.prepare.outputs.dry_run == 'true' }}
+        run: |
+          set -euo pipefail
+          tar -xzf source-snapshot.tar.gz
+          rm source-snapshot.tar.gz
+
+      - name: Verify release version consistency
+        env:
+          EXPECTED_VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          set -euo pipefail
+          ACTUAL_VERSION="$(cargo metadata --format-version 1 --no-deps | jq -r '.packages[0].version')"
+          if [[ -z "${ACTUAL_VERSION}" || "${ACTUAL_VERSION}" == "null" ]]; then
+            echo "Error: could not read package version from Cargo.toml"
+            exit 1
+          fi
+          if [[ "${ACTUAL_VERSION}" != "${EXPECTED_VERSION}" ]]; then
+            echo "Error: version mismatch (expected ${EXPECTED_VERSION}, found ${ACTUAL_VERSION})"
+            exit 1
+          fi
+
+      - name: Install jq
+        run: |
+          sudo apt-get update -o Acquire::Retries=3
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends jq
+
+      - name: Download release artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: release-*
+          path: dist
+          merge-multiple: true
+
+      - name: Push tag
+        if: ${{ needs.prepare.outputs.dry_run != 'true' }}
+        env:
+          TAG: ${{ needs.prepare.outputs.tag }}
+          RELEASE_COMMIT: ${{ needs.prepare.outputs.release_commit }}
+        run: |
+          set -euo pipefail
+
+          if git ls-remote --exit-code --tags origin "refs/tags/${TAG}" >/dev/null 2>&1; then
+            echo "Error: tag ${TAG} already exists on origin"
+            exit 1
+          fi
+
+          git tag "$TAG" "$RELEASE_COMMIT"
+          git push origin "$TAG"
+
+      - name: Create GitHub release and upload assets
+        if: ${{ needs.prepare.outputs.dry_run != 'true' }}
+        uses: softprops/action-gh-release@v2.6.1
+        with:
+          tag_name: ${{ needs.prepare.outputs.tag }}
+          target_commitish: ${{ needs.prepare.outputs.release_commit }}
+          name: ${{ needs.prepare.outputs.tag }}
+          generate_release_notes: true
+          files: |
+            dist/solana-verify-${{ needs.prepare.outputs.version }}-linux
+            dist/solana-verify-${{ needs.prepare.outputs.version }}-linux.sha256
+            dist/solana-verify-${{ needs.prepare.outputs.version }}-macos
+            dist/solana-verify-${{ needs.prepare.outputs.version }}-macos.sha256
+
+      - name: Publish workflow summary
+        env:
+          DRY_RUN: ${{ needs.prepare.outputs.dry_run }}
+          TAG: ${{ needs.prepare.outputs.tag }}
+          VERSION: ${{ needs.prepare.outputs.version }}
+          PR_URL: ${{ needs.prepare.outputs.pr_url }}
+        run: |
+          {
+            echo "## Release Completed"
+            echo
+            echo "- Dry run: \`${DRY_RUN}\`"
+            echo "- Version: \`${VERSION}\`"
+            echo "- Tag: \`${TAG}\`"
+            if [[ "${DRY_RUN}" == "true" ]]; then
+              echo "- Version bump PR: dry-run (not created)"
+            else
+              echo "- Version bump PR: ${PR_URL}"
+            fi
+            echo "- Crate: https://crates.io/crates/solana-verify"
+            if [[ "${DRY_RUN}" != "true" ]]; then
+              echo "- GitHub Release: https://github.com/${GITHUB_REPOSITORY}/releases/tag/${TAG}"
+            else
+              echo "- GitHub Release: dry-run (not created)"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"

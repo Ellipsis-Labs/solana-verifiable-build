@@ -66,3 +66,10 @@ For responsible disclosure of bugs related to verified builds CLI, please email 
 ## Contributing
 
 Contributions are welcome! Please feel free to submit a Pull Request.
+
+## Releasing
+
+Use `.github/workflows/release.yml` (`Release`) as the canonical release path.
+Use `.github/workflows/build.yml` only for manual artifact builds from a specific ref.
+
+See [RELEASE.md](RELEASE.md) for release steps and recovery procedures.
