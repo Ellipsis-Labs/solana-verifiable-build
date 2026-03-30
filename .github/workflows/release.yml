@@ -93,7 +93,15 @@ jobs:
         with:
           toolchain: 1.94.0
 
+      - name: Cache cargo-edit binary
+        id: cache-cargo-edit
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/bin/cargo-set-version
+          key: cargo-edit-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}
+
       - name: Install cargo-edit
+        if: steps.cache-cargo-edit.outputs.cache-hit != 'true'
         run: cargo install cargo-edit --locked
 
       - name: Verify version is not already published
@@ -230,7 +238,7 @@ jobs:
           EXPECTED_VERSION: ${{ needs.prepare.outputs.version }}
         run: |
           set -euo pipefail
-          ACTUAL_VERSION="$(cargo metadata --format-version 1 --no-deps | jq -r '.packages[0].version')"
+          ACTUAL_VERSION="$(cargo metadata --format-version 1 --no-deps | jq -r '.packages[] | select(.name == "solana-verify") | .version')"
           if [[ -z "${ACTUAL_VERSION}" || "${ACTUAL_VERSION}" == "null" ]]; then
             echo "Error: could not read package version from Cargo.toml"
             exit 1
@@ -317,7 +325,7 @@ jobs:
           EXPECTED_VERSION: ${{ needs.prepare.outputs.version }}
         run: |
           set -euo pipefail
-          ACTUAL_VERSION="$(cargo metadata --format-version 1 --no-deps | jq -r '.packages[0].version')"
+          ACTUAL_VERSION="$(cargo metadata --format-version 1 --no-deps | jq -r '.packages[] | select(.name == "solana-verify") | .version')"
           if [[ -z "${ACTUAL_VERSION}" || "${ACTUAL_VERSION}" == "null" ]]; then
             echo "Error: could not read package version from Cargo.toml"
             exit 1
@@ -388,7 +396,7 @@ jobs:
           EXPECTED_VERSION: ${{ needs.prepare.outputs.version }}
         run: |
           set -euo pipefail
-          ACTUAL_VERSION="$(cargo metadata --format-version 1 --no-deps | jq -r '.packages[0].version')"
+          ACTUAL_VERSION="$(cargo metadata --format-version 1 --no-deps | jq -r '.packages[] | select(.name == "solana-verify") | .version')"
           if [[ -z "${ACTUAL_VERSION}" || "${ACTUAL_VERSION}" == "null" ]]; then
             echo "Error: could not read package version from Cargo.toml"
             exit 1
