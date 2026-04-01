@@ -20,13 +20,15 @@ jobs:
         id: meta
         env:
           EVENT_NAME: ${{ github.event_name }}
+          RELEASE_TAG_NAME: ${{ github.event.release.tag_name }}
+          INPUT_TAG: ${{ github.event.inputs.tag }}
         run: |
           set -euo pipefail
 
           if [ "${EVENT_NAME}" = "release" ]; then
-            TAG="${{ github.event.release.tag_name }}"
+            TAG="${RELEASE_TAG_NAME}"
           else
-            TAG="${{ github.event.inputs.tag }}"
+            TAG="${INPUT_TAG}"
           fi
 
           if ! [[ "${TAG}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
