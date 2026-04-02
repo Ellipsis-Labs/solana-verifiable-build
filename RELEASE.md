@@ -75,6 +75,10 @@ The workflow handles release branch creation, version bump, artifact build, tag/
 1. Merge the release PR (`release/vX.Y.Z`) into `master`.
 2. (Not applicable for `dry_run=true`, because no PR is created.)
 
+## Verified Programs API (`verify.osec.io`)
+
+After a **published** GitHub Release, workflow **Open API Dockerfile bump PR** (`.github/workflows/open-verified-programs-api-pr.yml`) opens a pull request on [otter-sec/solana-verified-programs-api](https://github.com/otter-sec/solana-verified-programs-api) so `api/Dockerfile` pins the same `solana-verify` tag (`vX.Y.Z`) as this release.
+
 ## Failure Recovery
 
 1. **Fails in `dry_run=true` mode**:

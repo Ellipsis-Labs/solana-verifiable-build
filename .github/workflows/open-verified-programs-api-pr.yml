@@ -1,0 +1,81 @@
+name: Open API Dockerfile bump PR
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Version to use in the API Dockerfile (example: v0.4.15)'
+        required: true
+        type: string
+
+jobs:
+  bump-api-dockerfile:
+    if: github.event_name == 'workflow_dispatch' || github.event.release.prerelease == false
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Get version tag
+        id: meta
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          RELEASE_TAG_NAME: ${{ github.event.release.tag_name }}
+          INPUT_TAG: ${{ github.event.inputs.tag }}
+        run: |
+          set -euo pipefail
+
+          if [ "${EVENT_NAME}" = "release" ]; then
+            TAG="${RELEASE_TAG_NAME}"
+          else
+            TAG="${INPUT_TAG}"
+          fi
+
+          if ! [[ "${TAG}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::Invalid tag format. Expected vX.Y.Z, got: ${TAG}"
+            exit 1
+          fi
+
+          echo "tag=${TAG}" >> "${GITHUB_OUTPUT}"
+
+      - name: Checkout API repository
+        uses: actions/checkout@v4
+        with:
+          repository: otter-sec/solana-verified-programs-api
+          token: ${{ secrets.SOLANA_VERIFIED_PROGRAMS_API_PAT }}
+          ref: master
+
+      - name: Update version in api/Dockerfile
+        env:
+          TAG: ${{ steps.meta.outputs.tag }}
+        run: |
+          set -euo pipefail
+
+          if ! grep -q 'solana-foundation/solana-verifiable-build --tag v[0-9]' api/Dockerfile; then
+            echo "::error::Expected solana-verifiable-build install line not found in api/Dockerfile"
+            exit 1
+          fi
+
+          sed -i.bak -E "s|(solana-foundation/solana-verifiable-build --tag )v[0-9]+\.[0-9]+\.[0-9]+|\1${TAG}|" api/Dockerfile
+          rm -f api/Dockerfile.bak
+
+          git diff -- api/Dockerfile || true
+
+      - name: Create pull request in API repo
+        uses: peter-evans/create-pull-request@v7
+        with:
+          token: ${{ secrets.SOLANA_VERIFIED_PROGRAMS_API_PAT }}
+          commit-message: 'Update solana-verify to ${{ steps.meta.outputs.tag }}'
+          title: 'Update solana-verify to ${{ steps.meta.outputs.tag }}'
+          body: |
+            This PR updates the solana-verify version in `api/Dockerfile` to **${{ steps.meta.outputs.tag }}**.
+
+            Triggered from a release in [${{ github.repository }}](https://github.com/${{ github.repository }}).
+
+            Before merging, please run:
+            `docker build -f api/Dockerfile .`
+          branch: update/solana-verify-${{ steps.meta.outputs.tag }}
+          delete-branch: true
+          base: master
+          labels: |
+            automated
