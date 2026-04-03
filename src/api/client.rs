@@ -190,7 +190,7 @@ pub async fn handle_submission_response(
                     println!("Program {program_id} has not been verified. ❌");
                     eprintln!("Error message: {}", status_response.message.as_str());
                     println!(
-                        "You can check the logs for more details here: {REMOTE_SERVER_URL}/logs/{request_id}"
+                        "You can check the logs for more details here: {REMOTE_SERVER_URL}/logs/{program_id}"
                     );
                     break;
                 }
