@@ -1305,7 +1305,7 @@ fn build_args(
 
     if let Some(cargo_build_sbf_args) = &cargo_build_sbf_args {
         args.push(format!(
-            "{}={}",
+            "{}=\"{}\"",
             "--cargo-build-sbf-args",
             cargo_build_sbf_args.clone()
         ));
