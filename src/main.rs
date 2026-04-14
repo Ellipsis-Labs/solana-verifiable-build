@@ -1002,6 +1002,9 @@ pub fn build(
     // Set the container id so we can kill it later if the process is interrupted
     container_id_opt.replace(container_id.clone());
 
+    let active_toolchain = get_container_active_toolchain(&container_id)?;
+    println!("Using container Rust toolchain: {active_toolchain}");
+
     // Solana v1.17 uses Rust 1.73, which defaults to the sparse registry, making
     // this fetch unnecessary, but requires us to omit the "frozen" argument
     let locked_args = if major == 1 && minor < 17 {
@@ -1009,8 +1012,15 @@ pub fn build(
         // ARM processors running Linux have a bug where the build fails if the dependencies are not preloaded.
         // Running the build without the pre-fetch will cause the container to run out of memory.
         // This is a workaround for that issue.
+        // Set RUSTUP_TOOLCHAIN to the active toolchain in the container
+        // so that the dependencies are fetched with the correct toolchain
         let output = std::process::Command::new("docker")
-            .args(["exec", &container_id])
+            .args([
+                "exec",
+                "-e",
+                &format!("RUSTUP_TOOLCHAIN={active_toolchain}"),
+                &container_id,
+            ])
             .args([
                 "cargo",
                 "--config",
@@ -1039,8 +1049,17 @@ pub fn build(
     };
 
     let mut cmd = std::process::Command::new("docker");
-    cmd.args(["exec", "-w", &build_path, &container_id])
-        .args(["cargo", build_command]);
+    // Set RUSTUP_TOOLCHAIN to the active toolchain in the container
+    // so that the build is performed with the correct toolchain
+    cmd.args([
+        "exec",
+        "-e",
+        &format!("RUSTUP_TOOLCHAIN={active_toolchain}"),
+        "-w",
+        &build_path,
+        &container_id,
+    ])
+    .args(["cargo", build_command]);
 
     // Add arch flag if specified
     if let Some(arch_value) = &arch {
@@ -1553,6 +1572,28 @@ pub fn parse_output(output: Output) -> anyhow::Result<String> {
         .ok_or_else(|| anyhow!("Failed to parse output: {output}"))?
         .to_string();
     Ok(parsed_output)
+}
+
+fn get_container_active_toolchain(container_id: &str) -> anyhow::Result<String> {
+    // get the active toolchain from the container
+    let output = std::process::Command::new("docker")
+        .args([
+            "exec",
+            "-w",
+            "/",
+            container_id,
+            "rustup",
+            "show",
+            "active-toolchain",
+        ])
+        .output()
+        .map_err(|e| anyhow!("Failed to query container toolchain: {e}"))?;
+    let active = parse_output(output)?;
+    let toolchain = active
+        .split_whitespace()
+        .next()
+        .ok_or_else(|| anyhow!("Failed to parse active rust toolchain from: {active}"))?;
+    Ok(toolchain.to_string())
 }
 
 /// Reads Solana version from `[workspace.metadata.cli]` solana = "x.y.z" in the root Cargo.toml
