@@ -1,14 +1,23 @@
 import subprocess
 import os
 import argparse
+import glob
 import requests
 import tomllib
 import re
+import hashlib
+import time
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--upload", action="store_true")
 parser.add_argument("--skip_cache", action="store_true")
 parser.add_argument("--version")
+parser.add_argument("--update_existing", action="store_true", help="Overwrite existing docker/v*.Dockerfile files.")
+parser.add_argument(
+    "--only_existing",
+    action="store_true",
+    help="When used with --update_existing, only update Dockerfiles that already exist locally.",
+)
 args = parser.parse_args()
 
 # Array of Solana version mapped to rust version hashes
@@ -19,13 +28,41 @@ RUST_DOCKER_IMAGESHA_MAP = {
 RUST_VERSION_PLACEHOLDER = "$RUST_VERSION"
 SOLANA_VERSION_PLACEHOLDER = "$SOLANA_VERSION"
 AGAVE_VERSION_PLACEHOLDER = "$AGAVE_VERSION"
+INSTALL_SHA256_PLACEHOLDER = "$INSTALL_SHA256"
 
-# Dockerfile template for Solana versions >= 1.15
+_INSTALL_SHA256_CACHE = {}
+
+def fetch_install_script_sha256(url: str) -> str:
+    if url in _INSTALL_SHA256_CACHE:
+        return _INSTALL_SHA256_CACHE[url]
+
+    for _ in range(3):
+        try:
+            resp = requests.get(url, timeout=30)
+            resp.raise_for_status()
+            sha = hashlib.sha256(resp.content).hexdigest()
+            _INSTALL_SHA256_CACHE[url] = sha
+            return sha
+        except Exception:
+            time.sleep(2)
+
+    _INSTALL_SHA256_CACHE[url] = None
+    return None
+
+def with_pinned_installer(url: str, install_path: str = "/tmp/solana_install.sh") -> str:
+    return (
+        f'RUN curl -sSfL "{url}" -o {install_path} && \\\n'
+        f'    ACTUAL=$(sha256sum {install_path} | awk \'{{print $1}}\') && \\\n'
+        f'    test "$ACTUAL" = "{INSTALL_SHA256_PLACEHOLDER}" && \\\n'
+        f"    sh {install_path} && \\\n"
+        f"    rm -f {install_path}\n"
+    )
+
 base_dockerfile_sol = f"""
 FROM --platform=linux/amd64 rust@{RUST_VERSION_PLACEHOLDER}
 
-RUN apt-get update && apt-get install -qy git gnutls-bin
-RUN sh -c "$(curl -sSfL https://release.solana.com/{SOLANA_VERSION_PLACEHOLDER}/install)"
+RUN apt-get update && apt-get install -qy git gnutls-bin curl ca-certificates
+{with_pinned_installer(f"https://release.solana.com/{SOLANA_VERSION_PLACEHOLDER}/install")}
 ENV PATH="/root/.local/share/solana/install/active_release/bin:$PATH"
 WORKDIR /build
 
@@ -36,10 +73,12 @@ CMD /bin/bash
 base_dockerfile_sol_pre15 = f"""
 FROM --platform=linux/amd64 rust@{RUST_VERSION_PLACEHOLDER}
 
-RUN apt-get update && apt-get install -qy git gnutls-bin curl
+RUN apt-get update && apt-get install -qy git gnutls-bin curl ca-certificates
 
 # Download and modify the Solana install script to install the specified version
 RUN curl -sSfL "https://release.solana.com/v1.18.20/install" -o solana_install.sh && \\
+    ACTUAL=$(sha256sum solana_install.sh | awk '{{print $1}}') && \\
+    test "$ACTUAL" = "{INSTALL_SHA256_PLACEHOLDER}" && \\
     chmod +x solana_install.sh && \\
     sed -i "s/^SOLANA_INSTALL_INIT_ARGS=.*/SOLANA_INSTALL_INIT_ARGS={SOLANA_VERSION_PLACEHOLDER}/" solana_install.sh && \\
     ./solana_install.sh && \\
@@ -54,8 +93,8 @@ CMD /bin/bash
 base_dockerfile_agave = f"""
 FROM --platform=linux/amd64 rust@{RUST_VERSION_PLACEHOLDER}
 
-RUN apt-get update && apt-get install -qy git gnutls-bin
-RUN sh -c "$(curl -sSfL https://release.anza.xyz/{AGAVE_VERSION_PLACEHOLDER}/install)"
+RUN apt-get update && apt-get install -qy git gnutls-bin curl ca-certificates
+{with_pinned_installer(f"https://release.anza.xyz/{AGAVE_VERSION_PLACEHOLDER}/install")}
 ENV PATH="/root/.local/share/solana/install/active_release/bin:$PATH"
 # Call cargo build-sbf to trigger installation of associated platform tools
 RUN cargo init temp --edition 2021 && \\
@@ -102,29 +141,30 @@ def get_release_info(version_tag):
     
     # All releases 14 and below have a broken installer, so we need to use a custom script with a newer installer
     if (major == 1 and minor < 15):
-        release_info = {
+        return {
             "base_dockerfile_text": base_dockerfile_sol_pre15,
             "version_placeholder": SOLANA_VERSION_PLACEHOLDER,
-            "url": f"https://raw.githubusercontent.com/solana-labs/solana/{version_tag}/rust-toolchain.toml"
+            "url": f"https://raw.githubusercontent.com/solana-labs/solana/{version_tag}/rust-toolchain.toml",
+            "install_url": "https://release.solana.com/v1.18.20/install"
         }
     # Everything from 1.15.0 to 1.18.24 we want to get from solana labs 
     elif (major == 1 and minor >= 15) and not (minor == 18 and patch >= 24):
-        release_info = {
+        return {
             "base_dockerfile_text": base_dockerfile_sol,
             "version_placeholder": SOLANA_VERSION_PLACEHOLDER,
-            "url": f"https://raw.githubusercontent.com/solana-labs/solana/{version_tag}/rust-toolchain.toml"
+            "url": f"https://raw.githubusercontent.com/solana-labs/solana/{version_tag}/rust-toolchain.toml",
+            "install_url": f"https://release.solana.com/{version_tag}/install"
         }
     #Everything after we need to get from anza 
     elif (major == 1 and minor == 18 and patch >= 24) or major >= 2:
-        release_info = {
+        return {
             "base_dockerfile_text": base_dockerfile_agave,
             "version_placeholder": AGAVE_VERSION_PLACEHOLDER,
-            "url": f"https://raw.githubusercontent.com/anza-xyz/agave/{version_tag}/rust-toolchain.toml"
+            "url": f"https://raw.githubusercontent.com/anza-xyz/agave/{version_tag}/rust-toolchain.toml",
+            "install_url": f"https://release.anza.xyz/{version_tag}/install"
         }
-    else:
-        print(f"Skipping {version_tag} as it does not meet Solana or Agave criteria.")
-        return None
-    return release_info
+
+    return None
 
 # Function to get Solana releases
 def get_solana_releases():
@@ -150,6 +190,19 @@ def get_agave_releases():
     ]
     return tags
 
+def get_existing_docker_releases():
+    """
+    Returns release tags from existing dockerfiles only.
+    Used to avoid network calls when we only need to update already-checked-in Dockerfiles.
+    """
+    releases = []
+    for path in glob.glob("docker/v*.Dockerfile"):
+        base = os.path.basename(path)
+        if not base.endswith(".Dockerfile"):
+            continue
+        releases.append(base[: -len(".Dockerfile")])  # keep leading "v"
+    return sorted(set(releases))
+
 # Function to get Rust toolchain for each release
 def get_toolchain(version_tag):
     if "v1.14" in version_tag:
@@ -159,14 +212,11 @@ def get_toolchain(version_tag):
     if release_info is None:
         return None
 
-    url = release_info["url"]
-    response = requests.get(url, headers={"Accept": "application/vnd.github.v3.raw"})
+    response = requests.get(release_info["url"], headers={"Accept": "application/vnd.github.v3.raw"})
     if response.status_code == 200:
         parsed_data = tomllib.loads(response.text)
         return parsed_data["toolchain"]["channel"]
-    print(f"Failed to fetch rust-toolchain.toml for {version_tag}")
-    # Fallback to rust-version.ci for older versions
-    print(f"Attempting to retrieve Rust version from rust-version.ci for {version_tag}")
+
     return get_rust_version_from_ci(version_tag)
 
 def get_rust_version_from_ci(version_tag):
@@ -187,6 +237,10 @@ def process_releases(releases):
     for release in releases:
         release_info = get_release_info(release)
         if release_info is None:
+            continue
+
+        path = f"docker/{release}.Dockerfile"
+        if args.only_existing and not os.path.exists(path):
             continue
 
         base_dockerfile_text = release_info["base_dockerfile_text"]
@@ -218,26 +272,47 @@ def process_releases(releases):
             RUST_VERSION_PLACEHOLDER, RUST_DOCKER_IMAGESHA_MAP[rust_version]
         ).lstrip("\n")
 
-        path = f"docker/{release}.Dockerfile"
+        if os.path.exists(path):
+            if not args.update_existing:
+                # Only generate Dockerfiles for new releases
+                continue
+
+        sha = fetch_install_script_sha256(release_info["install_url"])
+        if not sha:
+            print(f"Warning: failed to fetch installer checksum for {release}; leaving {path} unchanged")
+            continue
+
+        dockerfile = dockerfile.replace(INSTALL_SHA256_PLACEHOLDER, sha)
+
+        if INSTALL_SHA256_PLACEHOLDER in dockerfile:
+            raise Exception(f"Checksum not injected for {release}")
+
+        stripped = release.strip("v")
         if os.path.exists(path):
             with open(path, "r") as f:
-                if f.read() != dockerfile:
-                    dirty_set.add(release.strip("v"))
+                unchanged = f.read() == dockerfile
         else:
-            dirty_set.add(release.strip("v"))
-        with open(path, "w") as f:
-            f.write(dockerfile)
+            unchanged = False
+
+        if not unchanged:
+            dirty_set.add(stripped)
+            with open(path, "w") as f:
+                f.write(dockerfile)
         dockerfiles[release] = path
 
 # Main execution
-solana_releases = get_solana_releases()
-agave_releases = get_agave_releases()
-
 dockerfiles = {}
 dirty_set = set()
 
-process_releases(solana_releases)
-process_releases(agave_releases)
+if args.update_existing and args.only_existing:
+    # Only update already present dockerfiles
+    releases = get_existing_docker_releases()
+    process_releases(releases)
+else:
+    solana_releases = get_solana_releases()
+    agave_releases = get_agave_releases()
+    process_releases(solana_releases)
+    process_releases(agave_releases)
 
 print(RUST_DOCKER_IMAGESHA_MAP)
 
@@ -251,11 +326,7 @@ if not args.skip_cache:
     for result in response.json()["results"]:
         print(result)
         if result["name"] != "latest":
-            try:
-                digest_set.add(result["name"])
-            except Exception as e:
-                print(e)
-                continue
+            digest_set.add(result["name"])
 
 if args.upload:
     print("Uploading all Dockerfiles")
@@ -273,7 +344,7 @@ if args.upload:
             if len(ver) == 2:
                 a_major, a_minor = ver
                 a_patch = patch
-            if len(ver) == 3:
+            else:
                 a_major, a_minor, a_patch = ver
             if major != a_major or minor != a_minor or a_patch != patch:
                 print(f"Skipping {stripped_tag}")
@@ -289,6 +360,7 @@ if args.upload:
             continue
         if stripped_tag in dirty_set:
             print(f"Dockerfile for {stripped_tag} needs to be modified")
+
         version_tag = f"solana:{stripped_tag}"
         print(version_tag)
         current_directory = os.getcwd()
