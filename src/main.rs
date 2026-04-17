@@ -1867,13 +1867,7 @@ async fn export_pda_tx(
     };
 
     if ix_only {
-        let ix = compose_instruction(
-            &input_params,
-            uploader,
-            pda,
-            program_id,
-            instruction,
-        );
+        let ix = compose_instruction(&input_params, uploader, pda, program_id, instruction);
 
         // serialize the instruction
         match encoding {

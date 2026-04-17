@@ -192,7 +192,13 @@ pub fn compose_transaction(
     instruction: OtterVerifyInstructions,
     compute_unit_price: u64,
 ) -> Transaction {
-    let ix = compose_instruction(params, signer_pubkey, pda_account, program_address, instruction);
+    let ix = compose_instruction(
+        params,
+        signer_pubkey,
+        pda_account,
+        program_address,
+        instruction,
+    );
 
     let message = if compute_unit_price > 0 {
         // Add compute budget instruction for priority fees only if price > 0
