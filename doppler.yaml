@@ -1,0 +1,3 @@
+setup:
+  - project: solana-verifiable-build
+    config: dev_personal

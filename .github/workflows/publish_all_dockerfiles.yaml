@@ -41,6 +41,7 @@ jobs:
         version: ${{ fromJson(needs.detect_changes.outputs.versions )}}
     name: Push Docker images to docker.io
     runs-on: ubuntu-latest
+    environment: release-automation
     permissions:
       packages: write
       contents: read
@@ -53,12 +54,21 @@ jobs:
       - name: Check out the repo
         uses: actions/checkout@v4
 
+      - uses: dopplerhq/secrets-fetch-action@v2.0.0
+        id: doppler
+        with:
+          auth-method: oidc
+          doppler-identity-id: ${{ vars.DOPPLER_SERVICE_IDENTITY_ID }}
+          doppler-project: ${{ vars.DOPPLER_PROJECT || 'solana-verifiable-build' }}
+          doppler-config: ${{ vars.DOPPLER_CONFIG_CI || 'stg_github' }}
+          inject-env-vars: true
+
       - name: Log in to the Container registry
         uses: docker/login-action@65b78e6e13532edd9afa3aa52ac7964289d1a9c1
         with:
           registry: docker.io
-          username: ${{ secrets.DOCKER_USERNAME }}
-          password: ${{ secrets.DOCKER_PASSWORD }}
+          username: ${{ steps.doppler.outputs.DOCKER_USERNAME }}
+          password: ${{ steps.doppler.outputs.DOCKER_PASSWORD }}
 
       - name: Extract metadata (tags, labels) for Docker
         id: meta
