@@ -27,7 +27,7 @@ jobs:
         with:
           auth-method: oidc
           doppler-identity-id: ${{ vars.DOPPLER_SERVICE_IDENTITY_ID }}
-          doppler-project: ${{ vars.DOPPLER_PROJECT || 'solana-verifiable-build' }}
+          doppler-project: ${{ vars.DOPPLER_PROJECT || 'verifiable-build' }}
           doppler-config: ${{ vars.DOPPLER_CONFIG_CI || 'stg_github' }}
           inject-env-vars: true
 
