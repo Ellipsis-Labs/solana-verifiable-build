@@ -1,0 +1,37 @@
+name: CI Doppler smoke test
+on:
+  workflow_dispatch:
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    environment: release-automation
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: dopplerhq/secrets-fetch-action@v2.0.0
+        id: doppler
+        with:
+          auth-method: oidc
+          doppler-identity-id: ${{ vars.DOPPLER_SERVICE_IDENTITY_ID }}
+          doppler-project: ${{ vars.DOPPLER_PROJECT || 'verifiable-build' }}
+          doppler-config: ${{ vars.DOPPLER_CONFIG_CI || 'stg_github' }}
+          inject-env-vars: false
+
+      - uses: docker/login-action@65b78e6e13532edd9afa3aa52ac7964289d1a9c1
+        with:
+          registry: docker.io
+          username: ${{ steps.doppler.outputs.DOCKER_USERNAME }}
+          password: ${{ steps.doppler.outputs.DOCKER_PASSWORD }}
+
+      - name: Validate PAT (read-only)
+        env:
+          GH_TOKEN: ${{ steps.doppler.outputs.SOLANA_VERIFIED_PROGRAMS_API_PAT }}
+        run: |
+          gh api user -q .login
+          gh api repos/otter-sec/solana-verified-programs-api -q .full_name
+
+      - name: Docker logout
+        if: always()
+        run: docker logout docker.io || true

@@ -1,0 +1,3 @@
+setup:
+  - project: verifiable-build
+    config: dev_personal
