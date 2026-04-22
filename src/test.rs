@@ -133,7 +133,7 @@ mod tests {
     fn test_drift_v2() -> anyhow::Result<()> {
         const EXPECTED_HASH: &str =
             "febe4feb7310395adcda7166e92d41a13a383567457a6068613964b72353fa4e";
-        let args: Vec<&str> = "verify-from-repo -um --program-id dRiftyHA39MWEi3m9aunc5MzRF1JYuBsbn6VPcn33UH https://github.com/drift-labs/protocol-v2 --commit-hash 0d35029d78 --library-name drift".split(" ").collect();
+        let args: Vec<&str> = "verify-from-repo -um --program-id dRiftyHA39MWEi3m9aunc5MzRF1JYuBsbn6VPcn33UH https://github.com/drift-labs/protocol-v2 --commit-hash 0d35029d780b5faf8b80fce84053e862802badc1 --library-name drift".split(" ").collect();
         test_verify_program_hash_helper(EXPECTED_HASH, &args)?;
         Ok(())
     }
