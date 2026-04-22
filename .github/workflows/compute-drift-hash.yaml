@@ -1,0 +1,43 @@
+name: Compute drift hash
+on:
+  workflow_dispatch:
+    inputs:
+      commit_hash:
+        description: 'protocol-v2 commit SHA to verify'
+        required: true
+        default: '0d35029d78'
+        type: string
+
+jobs:
+  compute:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential pkg-config libudev-dev
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Build solana-verify
+        run: cargo build --release
+
+      - name: Run verify-from-repo
+        run: |
+          set -o pipefail
+          echo n | ./target/release/solana-verify verify-from-repo -um \
+            --program-id dRiftyHA39MWEi3m9aunc5MzRF1JYuBsbn6VPcn33UH \
+            --commit-hash ${{ inputs.commit_hash }} \
+            --library-name drift \
+            https://github.com/drift-labs/protocol-v2 2>&1 | tee /tmp/verify.log
+
+      - name: Extract hash
+        run: |
+          echo "=== HASH ==="
+          grep 'Executable Program Hash from repo' /tmp/verify.log || {
+            echo "hash not found"
+            exit 1
+          }
