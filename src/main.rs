@@ -159,10 +159,16 @@ async fn main() -> anyhow::Result<()> {
                 .takes_value(true)
                 .possible_values(&["v0", "v1", "v2", "v3"])
                 .help("Build for the given target architecture [default: v0]"))
+            .arg(Arg::with_name("cargo-build-sbf-args")
+                .long("cargo-build-sbf-args")
+                .takes_value(true)
+                .require_equals(true)
+                .value_name("ARGS")
+                .help("Arguments to pass to the underlying `cargo build-sbf` command"))
             .arg(Arg::with_name("cargo-args")
                 .multiple(true)
                 .last(true)
-                .help("Arguments to pass to the underlying `cargo build-sbf` command")))
+                .help("Arguments to pass to the underlying `cargo` command")))
         .subcommand(SubCommand::with_name("verify-from-image")
             .about("Verifies a cached build from a docker image")
             .arg(Arg::with_name("executable-path-in-image")
@@ -259,6 +265,12 @@ async fn main() -> anyhow::Result<()> {
                 .long("keypair")
                 .takes_value(true)
                 .help("Optionally specify a keypair to use for uploading the program verification args"))
+            .arg(Arg::with_name("cargo-build-sbf-args")
+                .long("cargo-build-sbf-args")
+                .takes_value(true)
+                .require_equals(true)
+                .value_name("ARGS")
+                .help("Arguments to pass to the underlying `cargo build-sbf` command"))
             .arg(Arg::with_name("cargo-args")
                 .multiple(true)
                 .last(true)
@@ -319,6 +331,12 @@ async fn main() -> anyhow::Result<()> {
                 .takes_value(true)
                 .possible_values(&["v0", "v1", "v2", "v3"])
                 .help("Build for the given target architecture [default: v0]"))
+            .arg(Arg::with_name("cargo-build-sbf-args")
+                .long("cargo-build-sbf-args")
+                .takes_value(true)
+                .require_equals(true)
+                .value_name("ARGS")
+                .help("Arguments to pass to the underlying `cargo build-sbf` command"))
             .arg(Arg::with_name("cargo-args")
                 .multiple(true)
                 .last(true)
@@ -410,6 +428,9 @@ async fn main() -> anyhow::Result<()> {
             let base_image = sub_m.value_of("base-image").map(|s| s.to_string());
             let bpf_flag = sub_m.is_present("bpf");
             let arch = sub_m.value_of("arch").map(|s| s.to_string());
+            let cargo_build_sbf_args = sub_m
+                .value_of("cargo-build-sbf-args")
+                .map(|s| s.to_string());
             let cargo_args = sub_m
                 .values_of("cargo-args")
                 .unwrap_or_default()
@@ -422,6 +443,7 @@ async fn main() -> anyhow::Result<()> {
                 base_image,
                 bpf_flag,
                 arch,
+                cargo_build_sbf_args,
                 cargo_args,
                 &mut container_id,
             )
@@ -490,6 +512,9 @@ async fn main() -> anyhow::Result<()> {
                 .unwrap()
                 .parse::<u64>()
                 .unwrap_or(100000);
+            let cargo_build_sbf_args = sub_m
+                .value_of("cargo-build-sbf-args")
+                .map(|s| s.to_string());
             let cargo_args: Vec<String> = sub_m
                 .values_of("cargo-args")
                 .unwrap_or_default()
@@ -510,6 +535,7 @@ async fn main() -> anyhow::Result<()> {
                 library_name,
                 bpf_flag,
                 arch,
+                cargo_build_sbf_args,
                 cargo_args,
                 current_dir,
                 skip_prompt,
@@ -568,6 +594,9 @@ async fn main() -> anyhow::Result<()> {
                 .unwrap_or(100000);
 
             let commit_hash = get_commit_hash(sub_m, &repo_url)?;
+            let cargo_build_sbf_args = sub_m
+                .value_of("cargo-build-sbf-args")
+                .map(|s| s.to_string());
             let cargo_args: Vec<String> = sub_m
                 .values_of("cargo-args")
                 .unwrap_or_default()
@@ -594,6 +623,7 @@ async fn main() -> anyhow::Result<()> {
                 arch,
                 &mut temp_dir,
                 encoding,
+                cargo_build_sbf_args,
                 cargo_args,
                 compute_unit_price,
             )
@@ -883,6 +913,7 @@ pub fn build(
     base_image: Option<String>,
     bpf_flag: bool,
     arch: Option<String>,
+    cargo_build_sbf_args: Option<String>,
     cargo_args: Vec<String>,
     container_id_opt: &mut Option<String>,
 ) -> anyhow::Result<()> {
@@ -1047,6 +1078,11 @@ pub fn build(
         cmd.args(["--arch", arch_value]);
     }
 
+    // Add cargo-build-sbf arguments if present
+    if let Some(cargo_build_sbf_args) = &cargo_build_sbf_args {
+        cmd.args(cargo_build_sbf_args.split_whitespace());
+    }
+
     let output = cmd
         .args(["--"])
         .args(locked_args)
@@ -1197,6 +1233,7 @@ fn build_args(
     base_image: Option<String>,
     bpf_flag: bool,
     arch: Option<String>,
+    cargo_build_sbf_args: Option<String>,
     cargo_args: Vec<String>,
 ) -> anyhow::Result<(Vec<String>, String, String, String)> {
     let mut args: Vec<String> = Vec::new();
@@ -1276,6 +1313,14 @@ fn build_args(
     if let Some(arch_value) = &arch {
         args.push("--arch".to_string());
         args.push(arch_value.clone());
+    }
+
+    if let Some(cargo_build_sbf_args) = &cargo_build_sbf_args {
+        args.push(format!(
+            "{}=\"{}\"",
+            "--cargo-build-sbf-args",
+            cargo_build_sbf_args.clone()
+        ));
     }
 
     if !cargo_args.is_empty() {
@@ -1385,6 +1430,7 @@ pub async fn verify_from_repo(
     library_name_opt: Option<String>,
     bpf_flag: bool,
     arch: Option<String>,
+    cargo_build_sbf_args: Option<String>,
     cargo_args: Vec<String>,
     current_dir: bool,
     skip_prompt: bool,
@@ -1419,6 +1465,7 @@ pub async fn verify_from_repo(
         base_image.clone(),
         bpf_flag,
         arch.clone(),
+        cargo_build_sbf_args.clone(),
         cargo_args.clone(),
     )?;
     println!("Build path: {mount_path:?}");
@@ -1439,6 +1486,7 @@ pub async fn verify_from_repo(
             library_name.clone(),
             connection,
             program_id,
+            cargo_build_sbf_args.clone(),
             cargo_args.clone(),
             container_id_opt,
         )
@@ -1501,6 +1549,7 @@ pub fn build_and_verify_repo(
     library_name: String,
     connection: &RpcClient,
     program_id: Address,
+    cargo_build_sbf_args: Option<String>,
     cargo_args: Vec<String>,
     container_id_opt: &mut Option<String>,
 ) -> anyhow::Result<(String, String)> {
@@ -1513,6 +1562,7 @@ pub fn build_and_verify_repo(
         base_image,
         bpf_flag,
         arch,
+        cargo_build_sbf_args,
         cargo_args,
         container_id_opt,
     )?;
@@ -1695,6 +1745,7 @@ async fn export_pda_tx(
     arch: Option<String>,
     temp_dir: &mut Option<String>,
     encoding: UiTransactionEncoding,
+    cargo_build_sbf_args: Option<String>,
     cargo_args: Vec<String>,
     compute_unit_price: u64,
 ) -> anyhow::Result<()> {
@@ -1722,6 +1773,7 @@ async fn export_pda_tx(
             base_image.clone(),
             bpf_flag,
             arch,
+            cargo_build_sbf_args,
             cargo_args,
         )?
         .0,
