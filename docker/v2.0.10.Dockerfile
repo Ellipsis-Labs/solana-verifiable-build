@@ -1,7 +1,12 @@
 FROM --platform=linux/amd64 rust@sha256:653bd24b9a8f9800c67df55fea5637a97152153fd744a4ef78dd41f7ddc40144
 
-RUN apt-get update && apt-get install -qy git gnutls-bin
-RUN sh -c "$(curl -sSfL https://release.anza.xyz/v2.0.10/install)"
+RUN apt-get update && apt-get install -qy git gnutls-bin curl ca-certificates
+RUN curl -sSfL "https://release.anza.xyz/v2.0.10/install" -o /tmp/solana_install.sh && \
+    ACTUAL=$(sha256sum /tmp/solana_install.sh | awk '{print $1}') && \
+    test "$ACTUAL" = "f15b0c1591f9d4c329d7c256a4fa7b5bcfeb2a5dc9b1c7f1793690f5825a0cf0" && \
+    sh /tmp/solana_install.sh && \
+    rm -f /tmp/solana_install.sh
+
 ENV PATH="/root/.local/share/solana/install/active_release/bin:$PATH"
 # Call cargo build-sbf to trigger installation of associated platform tools
 RUN cargo init temp --edition 2021 && \
