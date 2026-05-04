@@ -36,6 +36,7 @@ jobs:
         uses: peter-evans/create-pull-request@v7
         with:
           token: ${{ github.token }}
+          sign-commits: true
           commit-message: Update Dockerfiles
           title: 'Update Dockerfiles'
           body: |

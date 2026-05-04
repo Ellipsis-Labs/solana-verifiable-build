@@ -41,6 +41,7 @@ jobs:
         uses: peter-evans/create-pull-request@v7
         with:
           token: ${{ github.token }}
+          sign-commits: true
           commit-message: Update image whitelist
           title: 'Update Image Whitelist'
           body: |
