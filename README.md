@@ -19,8 +19,8 @@ Verified builds allow developers and users to verify that a deployed Solana prog
    - Cargo
    - Solana Verify CLI (`cargo install solana-verify --locked`)
 
-For production usage, prefer published release tags/binaries over installing from an arbitrary branch.
-For Cargo installs, pin the release version explicitly:
+For production use, install from a tagged release (or release binary), not from an arbitrary branch.
+If you install with Cargo, pin the version:
 
 ```bash
 cargo install solana-verify --version <X.Y.Z> --locked
@@ -68,12 +68,12 @@ While verified builds enhance transparency, they should not be considered a comp
 - Use trusted build environments
 - Consider using governance solutions for program upgrades
 
-### Current Verification Boundaries
+### Current Verification Scope
 
-- CLI installs should use `--locked` to reduce dependency drift risk.
+- Use `--locked` for CLI installs to reduce dependency drift.
 - Build images are selected by pinned digest in the verification flow.
 - Solana/Agave installer scripts in generated Dockerfiles are checksum pinned.
-- Post-install verification of the resulting toolchain/platform-tools is not fully enforced yet and should be treated as follow-up hardening work.
+- Post-install verification of installed toolchain/platform-tools is still pending follow-up hardening.
 
 For responsible disclosure of bugs related to verified builds CLI, please email maintainers@ellipsislabs.xyz with a detailed description of the attack vector.
 

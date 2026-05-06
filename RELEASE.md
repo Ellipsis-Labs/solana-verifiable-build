@@ -81,16 +81,16 @@ After a **published** GitHub Release, workflow **Open API Dockerfile bump PR** (
 
 ## Supply-Chain Hardening Notes (#278)
 
-Use this checklist when touching release/publish automation:
+When touching release/publish automation, keep this in mind:
 
-- Prefer `--locked` installs/builds where supported in release automation.
+- Use `--locked` for installs/builds wherever supported.
 - Keep Docker image publishing and whitelist updates in sync:
   1. merge Dockerfile updates
   2. run image publish workflow(s)
   3. merge image whitelist update PR
-- Ensure auto-generated PR commits are signed/verified (`sign-commits: true` in create-pull-request steps).
-- Confirm whether GitHub Immutable Releases is enabled at org/repo level during security reviews.
-- Treat post-install verification of installed Solana/Agave toolchain/platform-tools as follow-up hardening work.
+- Keep auto-generated PR commits signed (`sign-commits: true` in create-pull-request steps).
+- During security reviews, confirm whether GitHub Immutable Releases is enabled at org/repo level.
+- Post-install verification of installed Solana/Agave toolchain/platform-tools is still follow-up hardening work.
 
 ## Failure Recovery
 
