@@ -89,7 +89,7 @@ When touching release/publish automation, keep this in mind:
   2. run image publish workflow(s)
   3. merge image whitelist update PR
 - Keep auto-generated PR commits signed (`sign-commits: true` in create-pull-request steps).
-- During security reviews, confirm whether GitHub Immutable Releases is enabled at org/repo level.
+- GitHub Immutable Releases is enabled. Keep it enabled and re-verify during periodic security reviews.
 - Post-install verification of installed Solana/Agave toolchain/platform-tools is still follow-up hardening work.
 
 ## Failure Recovery
