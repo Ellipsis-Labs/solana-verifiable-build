@@ -40,7 +40,7 @@ jobs:
 
       - name: Install cargo tools
         run: |
-          cargo install cargo-sort
+          cargo install cargo-sort --locked
 
       - name: Run cargo fmt check
         run: cargo fmt --all -- --check
