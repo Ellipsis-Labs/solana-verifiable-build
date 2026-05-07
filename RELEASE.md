@@ -79,6 +79,15 @@ The workflow handles release branch creation, version bump, artifact build, tag/
 
 After a **published** GitHub Release, workflow **Open API Dockerfile bump PR** (`.github/workflows/open-verified-programs-api-pr.yml`) opens a pull request on [otter-sec/solana-verified-programs-api](https://github.com/otter-sec/solana-verified-programs-api) so `api/Dockerfile` pins the same `solana-verify` tag (`vX.Y.Z`) as this release.
 
+## Security Notes (#278)
+
+- Keep Docker image publish and whitelist updates in sync:
+  1. merge Dockerfile changes
+  2. publish images
+  3. merge whitelist update PR
+- Keep auto-generated PR commits signed (`sign-commits: true` in create-pull-request workflows).
+- Post-install verification of installed toolchain/platform-tools is tracked as follow-up hardening.
+
 ## Failure Recovery
 
 1. **Fails in `dry_run=true` mode**:

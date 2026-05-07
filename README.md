@@ -17,7 +17,9 @@ Verified builds allow developers and users to verify that a deployed Solana prog
 
    - Docker
    - Cargo
-   - Solana Verify CLI (`cargo install solana-verify`)
+   - Solana Verify CLI (`cargo install solana-verify --locked`)
+
+For production use, prefer installing from a tagged release.
 
 2. Build your program:
 
@@ -60,6 +62,12 @@ While verified builds enhance transparency, they should not be considered a comp
 - Review the source code
 - Use trusted build environments
 - Consider using governance solutions for program upgrades
+
+### Current Verification Scope
+
+- Build images are selected by pinned digest.
+- Solana/Agave installer scripts in generated Dockerfiles are checksum pinned.
+- Post-install verification of installed toolchain/platform-tools is still follow-up work.
 
 For responsible disclosure of bugs related to verified builds CLI, please email maintainers@ellipsislabs.xyz with a detailed description of the attack vector.
 
